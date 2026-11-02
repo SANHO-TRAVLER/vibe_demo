@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>오늘의 할일</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <div id="storage-warning" class="banner pixel-box" role="alert" hidden>
+      이 브라우저에서는 저장할 수 없어요. 페이지를 닫으면 퀘스트가 사라집니다.
+    </div>
+
+    <header class="header">
+      <p class="eyebrow">QUEST BOARD</p>
+      <h1>노동 게시판</h1>
+      <p id="today" class="today"></p>
+    </header>
+
+    <!-- 캐릭터들이 가장자리에 둘러앉는 무대 (app.js의 critters가 채움) -->
+    <div id="stage" class="stage">
+    <div id="board" class="board">
+      <!-- 단기 퀘스트: 오늘 빠르게 끝낼 업무 -->
+      <section class="panel pixel-box daily-panel" aria-labelledby="daily-title">
+        <div class="panel-head">
+          <span id="daily-icon" class="panel-icon"></span>
+          <div>
+            <h2 id="daily-title">오늘의 노동</h2>
+            <p class="panel-sub">단기 퀘스트 · 오늘 끝낼 일</p>
+          </div>
+          <span id="daily-count" class="badge"></span>
+        </div>
+
+        <div id="daily-track" class="pixel-track" role="progressbar" aria-label="오늘의 노동 진행률"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="daily-bar" class="pixel-bar"></div>
+        </div>
+        <p id="daily-clear" class="clear-msg" hidden>
+          <span id="clear-icon"></span> 오늘의 노동 끝! 수고했어~
+        </p>
+
+        <form class="quest-form daily-form" data-type="daily" autocomplete="off">
+          <fieldset class="difficulty">
+            <legend class="visually-hidden">난이도</legend>
+            <label class="diff-option weed">
+              <input type="radio" name="difficulty" value="weed" checked>
+              <span><span data-icon="sprout"></span>풀뽑기 <small>저난도</small></span>
+            </label>
+            <label class="diff-option hunt">
+              <input type="radio" name="difficulty" value="hunt">
+              <span><span data-icon="sword"></span>토벌 <small>고난도</small></span>
+            </label>
+          </fieldset>
+          <div class="form-row">
+            <label for="daily-input" class="visually-hidden">새 단기 퀘스트</label>
+            <input id="daily-input" type="text" maxlength="100" placeholder="빠르게 끝낼 일을 적어요" autofocus>
+            <button type="submit" class="pixel-btn">수주</button>
+          </div>
+        </form>
+
+        <ul id="daily-list" class="quest-list"></ul>
+        <p id="daily-empty" class="empty" hidden>게시판이 비어 있어요. 오늘의 노동을 받아 볼까요?</p>
+      </section>
+
+      <!-- 장기 퀘스트: 오래 붙잡고 연구할 주제 -->
+      <section class="panel pixel-box story-panel" aria-labelledby="story-title">
+        <div class="panel-head">
+          <span id="story-icon" class="panel-icon"></span>
+          <div>
+            <h2 id="story-title">스토리 퀘스트</h2>
+            <p class="panel-sub">장기 퀘스트 · 길게 파고들 연구</p>
+          </div>
+          <span id="story-count" class="badge"></span>
+        </div>
+
+        <form class="quest-form" data-type="story" autocomplete="off">
+          <label for="story-input" class="visually-hidden">새 장기 퀘스트</label>
+          <input id="story-input" type="text" maxlength="100" placeholder="오래 연구할 주제를 적어요">
+          <button type="submit" class="pixel-btn">수주</button>
+        </form>
+
+        <ul id="story-list" class="quest-list story-list"></ul>
+        <p id="story-empty" class="empty" hidden>아직 시작한 스토리 퀘스트가 없어요.</p>
+      </section>
+    </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

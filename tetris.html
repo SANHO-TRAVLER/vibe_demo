@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>테트리스</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1020;
+    --panel: #1a1c34;
+    --border: #2e3160;
+    --text: #e8e9ff;
+    --muted: #8c90c0;
+    --accent: #6c7bff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at top, #1d2050 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    user-select: none;
+  }
+  .game {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    padding: 16px;
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 140px;
+  }
+  .box {
+    background: var(--panel);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .box h3 {
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .stat { font-size: 22px; font-weight: 700; }
+  .board-wrap { position: relative; }
+  #board {
+    display: block;
+    background: #0a0b18;
+    border: 3px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 0 40px rgba(108, 123, 255, 0.25);
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(10, 11, 24, 0.85);
+    border-radius: 8px;
+    text-align: center;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { font-size: 32px; letter-spacing: 3px; }
+  .overlay p { color: var(--muted); font-size: 14px; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, filter 0.2s;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:active { transform: scale(0.96); }
+  .keys { font-size: 12px; line-height: 1.8; color: var(--muted); }
+  .keys b { color: var(--text); font-weight: 600; }
+  canvas.mini { display: block; margin: 0 auto; }
+  @media (max-width: 560px) {
+    .game { flex-direction: column; align-items: center; }
+    .side { flex-direction: row; width: auto; flex-wrap: wrap; justify-content: center; }
+    .keys-box { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="game">
+  <div class="side">
+    <div class="box">
+      <h3>Hold</h3>
+      <canvas id="hold" class="mini" width="100" height="80"></canvas>
+    </div>
+    <div class="box">
+      <h3>점수</h3>
+      <div class="stat" id="score">0</div>
+    </div>
+    <div class="box">
+      <h3>최고 점수</h3>
+      <div class="stat" id="best">0</div>
+    </div>
+    <div class="box">
+      <h3>레벨</h3>
+      <div class="stat" id="level">1</div>
+    </div>
+    <div class="box">
+      <h3>라인</h3>
+      <div class="stat" id="lines">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <canvas id="board" width="300" height="600"></canvas>
+    <div class="overlay" id="overlay">
+      <h2 id="overlay-title">TETRIS</h2>
+      <p id="overlay-msg">Enter 또는 버튼을 눌러 시작</p>
+      <button id="start-btn">게임 시작</button>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="box keys-box">
+      <h3>조작법</h3>
+      <div class="keys">
+        <b>← →</b> 이동<br>
+        <b>↓</b> 소프트 드롭<br>
+        <b>↑ / X</b> 시계 회전<br>
+        <b>Z</b> 반시계 회전<br>
+        <b>Space</b> 하드 드롭<br>
+        <b>C / Shift</b> 홀드<br>
+        <b>P / Esc</b> 일시정지
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const COLS = 10;
+  const ROWS = 20;
+  const BLOCK = 30;
+
+  const COLORS = {
+    I: '#3fd8f0',
+    O: '#f7d84a',
+    T: '#b25cf0',
+    S: '#5ee36b',
+    Z: '#f2545b',
+    J: '#4a7cf7',
+    L: '#f79a3e',
+  };
+
+  const SHAPES = {
+    I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    O: [[1,1],[1,1]],
+    T: [[0,1,0],[1,1,1],[0,0,0]],
+    S: [[0,1,1],[1,1,0],[0,0,0]],
+    Z: [[1,1,0],[0,1,1],[0,0,0]],
+    J: [[1,0,0],[1,1,1],[0,0,0]],
+    L: [[0,0,1],[1,1,1],[0,0,0]],
+  };
+
+  // 이벤트: 처음 블록 3개 이후 글자가 순서대로 한 번 떨어지고, ♥ 다음부터는 다시 일반 블록
+  // 글자 하나는 2x2 블록 크기를 차지함
+  const LETTERS = ['진', '성', '아', '사', '랑', '해', '♥'];
+  const LETTER_EVERY = 3;
+  const LETTER_COLORS = {
+    '진': '#ff4fa3', '성': '#ffb800', '아': '#2fd3ff', '사': '#9b5cff',
+    '랑': '#4ee35e', '해': '#ff7a2f', '♥': '#ff2d5f',
+  };
+  const HEART_COLOR = '#ff2d5f';
+  const LETTER_FONT = '"Black Han Sans", "Malgun Gothic", sans-serif';
+
+  const isLetter = type => LETTERS.includes(type);
+  // 보드에 쌓인 글자 칸은 '글자 + 2x2 안의 위치(x, y)'로 저장. 예: '진01'
+  const isLetterCell = cell => cell.length === 3 && isLetter(cell[0]);
+  const matrixOf = type => isLetter(type) ? [[1, 1], [1, 1]] : SHAPES[type];
+
+  // 줄 제거 점수 (1~4줄)
+  const LINE_SCORES = [0, 100, 300, 500, 800];
+
+  const boardCanvas = document.getElementById('board');
+  const ctx = boardCanvas.getContext('2d');
+  const holdCtx = document.getElementById('hold').getContext('2d');
+
+  const $score = document.getElementById('score');
+  const $best = document.getElementById('best');
+  const $level = document.getElementById('level');
+  const $lines = document.getElementById('lines');
+  const $overlay = document.getElementById('overlay');
+  const $overlayTitle = document.getElementById('overlay-title');
+  const $overlayMsg = document.getElementById('overlay-msg');
+  const $startBtn = document.getElementById('start-btn');
+
+  let board, bag, queue, current, holdType, canHold;
+  let score, lines, level, best;
+  let dropCounter, lastTime, running, paused, gameOver;
+  let flashRows = [], flashTimer = 0;
+  let blocksSinceLetter = 0, letterIndex = 0, messageTimer = 0;
+
+  try { best = Number(localStorage.getItem('tetris-best')) || 0; } catch (e) { best = 0; }
+  $best.textContent = best;
+
+  function createBoard() {
+    return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+  }
+
+  // 7-bag 랜덤: 7개 블록을 섞어서 순서대로 사용
+  function refillBag() {
+    const types = Object.keys(SHAPES);
+    for (let i = types.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [types[i], types[j]] = [types[j], types[i]];
+    }
+    bag.push(...types);
+  }
+
+  function nextType() {
+    if (blocksSinceLetter >= LETTER_EVERY && letterIndex < LETTERS.length) {
+      return LETTERS[letterIndex++];
+    }
+    blocksSinceLetter++;
+    if (bag.length < 7) refillBag();
+    return bag.shift();
+  }
+
+  function createPiece(type) {
+    const matrix = matrixOf(type).map(row => row.slice());
+    return {
+      type,
+      matrix,
+      x: Math.floor((COLS - matrix[0].length) / 2),
+      y: type === 'I' ? -1 : 0,
+    };
+  }
+
+  function collide(piece, offX = 0, offY = 0, matrix = piece.matrix) {
+    for (let y = 0; y < matrix.length; y++) {
+      for (let x = 0; x < matrix[y].length; x++) {
+        if (!matrix[y][x]) continue;
+        const nx = piece.x + x + offX;
+        const ny = piece.y + y + offY;
+        if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+        if (ny >= 0 && board[ny][nx]) return true;
+      }
+    }
+    return false;
+  }
+
+  function rotateMatrix(matrix, dir) {
+    const n = matrix.length;
+    const result = Array.from({ length: n }, () => Array(n).fill(0));
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (dir > 0) result[x][n - 1 - y] = matrix[y][x];
+        else result[n - 1 - x][y] = matrix[y][x];
+      }
+    }
+    return result;
+  }
+
+  function rotate(dir) {
+    if (current.type === 'O') return;
+    const rotated = rotateMatrix(current.matrix, dir);
+    // 간단한 월킥: 제자리 → 좌우 → 위로 밀어보기
+    const kicks = [[0,0],[-1,0],[1,0],[-2,0],[2,0],[0,-1],[-1,-1],[1,-1]];
+    for (const [kx, ky] of kicks) {
+      if (!collide(current, kx, ky, rotated)) {
+        current.matrix = rotated;
+        current.x += kx;
+        current.y += ky;
+        return;
+      }
+    }
+  }
+
+  function move(dir) {
+    if (!collide(current, dir, 0)) current.x += dir;
+  }
+
+  function softDrop() {
+    if (!collide(current, 0, 1)) {
+      current.y++;
+      score += 1;
+      updateStats();
+    } else {
+      lockPiece();
+    }
+    dropCounter = 0;
+  }
+
+  function hardDrop() {
+    let dist = 0;
+    while (!collide(current, 0, 1)) {
+      current.y++;
+      dist++;
+    }
+    score += dist * 2;
+    updateStats();
+    lockPiece();
+    dropCounter = 0;
+  }
+
+  function hold() {
+    if (!canHold) return;
+    const type = current.type;
+    if (holdType) {
+      current = createPiece(holdType);
+    } else {
+      current = createPiece(queue.shift());
+      queue.push(nextType());
+    }
+    holdType = type;
+    canHold = false;
+    drawSide();
+  }
+
+  function lockPiece() {
+    let overTop = false;
+    current.matrix.forEach((row, y) => {
+      row.forEach((v, x) => {
+        if (!v) return;
+        const by = current.y + y;
+        if (by < 0) { overTop = true; return; }
+        board[by][current.x + x] = isLetter(current.type) ? current.type + x + y : current.type;
+      });
+    });
+    if (overTop) return endGame();
+
+    if (current.type === '♥') messageTimer = 2500;
+    clearLines();
+    spawn();
+  }
+
+  function clearLines() {
+    const full = [];
+    for (let y = 0; y < ROWS; y++) {
+      if (board[y].every(cell => cell)) full.push(y);
+    }
+    if (!full.length) return;
+
+    flashRows = full.slice();
+    flashTimer = 120;
+
+    for (const y of full) {
+      board.splice(y, 1);
+      board.unshift(Array(COLS).fill(null));
+    }
+    lines += full.length;
+    score += LINE_SCORES[full.length] * level;
+    level = Math.floor(lines / 10) + 1;
+    updateStats();
+  }
+
+  function spawn() {
+    current = createPiece(queue.shift());
+    queue.push(nextType());
+    canHold = true;
+    if (collide(current)) endGame();
+    drawSide();
+  }
+
+  function dropInterval() {
+    return Math.max(80, 1000 - (level - 1) * 85);
+  }
+
+  function ghostY() {
+    let dy = 0;
+    while (!collide(current, 0, dy + 1)) dy++;
+    return current.y + dy;
+  }
+
+  // ---------- 그리기 ----------
+  function drawBlock(c, x, y, size, color, alpha = 1) {
+    c.globalAlpha = alpha;
+    c.fillStyle = color;
+    c.fillRect(x, y, size, size);
+    c.fillStyle = 'rgba(255,255,255,0.28)';
+    c.fillRect(x, y, size, size * 0.18);
+    c.fillRect(x, y, size * 0.18, size);
+    c.fillStyle = 'rgba(0,0,0,0.25)';
+    c.fillRect(x, y + size * 0.82, size, size * 0.18);
+    c.fillRect(x + size * 0.82, y, size * 0.18, size);
+    c.strokeStyle = 'rgba(0,0,0,0.4)';
+    c.lineWidth = 1;
+    c.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+    c.globalAlpha = 1;
+  }
+
+  // 블록 없이 글자 자체를 그림 (box = 2x2 블록 크기의 정사각형)
+  function drawLetter(c, char, x, y, box, alpha = 1) {
+    const cx = x + box / 2;
+    const cy = y + box / 2 + box * 0.04;
+    const depth = Math.max(2, box * 0.06);
+    c.save();
+    c.globalAlpha = alpha;
+    c.font = `900 ${Math.round(box * 0.84)}px ${LETTER_FONT}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.lineJoin = 'round';
+    c.lineWidth = box * 0.12;
+    // 입체 그림자
+    c.fillStyle = c.strokeStyle = '#2a0b3d';
+    c.strokeText(char, cx + depth, cy + depth);
+    c.fillText(char, cx + depth, cy + depth);
+    // 두꺼운 흰 테두리 + 색 채우기
+    c.strokeStyle = '#fff';
+    c.strokeText(char, cx, cy);
+    c.fillStyle = LETTER_COLORS[char];
+    c.fillText(char, cx, cy);
+    // 위쪽 반짝이
+    c.beginPath();
+    c.rect(x, y, box, box * 0.45);
+    c.clip();
+    c.fillStyle = 'rgba(255,255,255,0.3)';
+    c.fillText(char, cx, cy);
+    c.restore();
+  }
+
+  // 줄이 지워져서 글자가 잘려도 남은 칸만 그려지도록 칸 단위로 잘라서 그림
+  function drawLetterPart(c, cell, x, y, size) {
+    const qx = Number(cell[1]);
+    const qy = Number(cell[2]);
+    c.save();
+    c.beginPath();
+    c.rect(x, y, size, size);
+    c.clip();
+    drawLetter(c, cell[0], x - qx * size, y - qy * size, size * 2);
+    c.restore();
+  }
+
+  function drawMessage() {
+    const alpha = Math.min(1, messageTimer / 500);
+    const cy = (ROWS * BLOCK) / 2;
+    ctx.globalAlpha = alpha * 0.75;
+    ctx.fillStyle = '#0a0b18';
+    ctx.fillRect(0, cy - 36, COLS * BLOCK, 72);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ff8fbd';
+    ctx.font = 'bold 30px "Malgun Gothic", "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = HEART_COLOR;
+    ctx.shadowBlur = 16;
+    ctx.fillText('진성아 사랑해 ♥', (COLS * BLOCK) / 2, cy);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGrid() {
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    for (let x = 1; x < COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * BLOCK + 0.5, 0);
+      ctx.lineTo(x * BLOCK + 0.5, ROWS * BLOCK);
+      ctx.stroke();
+    }
+    for (let y = 1; y < ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * BLOCK + 0.5);
+      ctx.lineTo(COLS * BLOCK, y * BLOCK + 0.5);
+      ctx.stroke();
+    }
+  }
+
+  function drawBoard() {
+    ctx.clearRect(0, 0, boardCanvas.width, boardCanvas.height);
+    drawGrid();
+
+    board.forEach((row, y) => {
+      row.forEach((type, x) => {
+        if (!type) return;
+        if (isLetterCell(type)) drawLetterPart(ctx, type, x * BLOCK, y * BLOCK, BLOCK);
+        else drawBlock(ctx, x * BLOCK, y * BLOCK, BLOCK, COLORS[type]);
+      });
+    });
+
+    if (flashTimer > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${(flashTimer / 120) * 0.5})`;
+      for (const y of flashRows) ctx.fillRect(0, y * BLOCK, COLS * BLOCK, BLOCK);
+    }
+
+    if (!current || gameOver) return;
+
+    // 고스트 블록 (착지 위치 미리보기)
+    const gy = ghostY();
+    if (isLetter(current.type)) {
+      drawLetter(ctx, current.type, current.x * BLOCK, gy * BLOCK, BLOCK * 2, 0.25);
+      drawLetter(ctx, current.type, current.x * BLOCK, current.y * BLOCK, BLOCK * 2);
+      if (messageTimer > 0) drawMessage();
+      return;
+    }
+    current.matrix.forEach((row, y) => {
+      row.forEach((v, x) => {
+        if (!v || gy + y < 0) return;
+        ctx.strokeStyle = COLORS[current.type];
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 2;
+        ctx.strokeRect((current.x + x) * BLOCK + 2, (gy + y) * BLOCK + 2, BLOCK - 4, BLOCK - 4);
+        ctx.globalAlpha = 1;
+      });
+    });
+
+    current.matrix.forEach((row, y) => {
+      row.forEach((v, x) => {
+        if (!v || current.y + y < 0) return;
+        drawBlock(ctx, (current.x + x) * BLOCK, (current.y + y) * BLOCK, BLOCK, COLORS[current.type]);
+      });
+    });
+
+    if (messageTimer > 0) drawMessage();
+  }
+
+  function drawMini(c, type, cx, cy, size, alpha = 1) {
+    if (isLetter(type)) {
+      drawLetter(c, type, cx - size, cy - size, size * 2, alpha);
+      return;
+    }
+    const m = SHAPES[type];
+    // 실제로 채워진 영역만 계산해서 가운데 정렬
+    let minX = 9, maxX = -1, minY = 9, maxY = -1;
+    m.forEach((row, y) => row.forEach((v, x) => {
+      if (!v) return;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }));
+    const w = (maxX - minX + 1) * size;
+    const h = (maxY - minY + 1) * size;
+    m.forEach((row, y) => row.forEach((v, x) => {
+      if (!v) return;
+      drawBlock(c, cx - w / 2 + (x - minX) * size, cy - h / 2 + (y - minY) * size, size, COLORS[type], alpha);
+    }));
+  }
+
+  function drawSide() {
+    holdCtx.clearRect(0, 0, 100, 80);
+    if (holdType) drawMini(holdCtx, holdType, 50, 40, 20, canHold ? 1 : 0.35);
+  }
+
+  function updateStats() {
+    $score.textContent = score;
+    $level.textContent = level;
+    $lines.textContent = lines;
+    if (score > best) {
+      best = score;
+      $best.textContent = best;
+      try { localStorage.setItem('tetris-best', best); } catch (e) {}
+    }
+  }
+
+  // ---------- 게임 흐름 ----------
+  function startGame() {
+    board = createBoard();
+    bag = [];
+    queue = [];
+    blocksSinceLetter = 0;
+    letterIndex = 0;
+    messageTimer = 0;
+    for (let i = 0; i < 5; i++) queue.push(nextType());
+    holdType = null;
+    score = 0;
+    lines = 0;
+    level = 1;
+    dropCounter = 0;
+    lastTime = performance.now();
+    running = true;
+    paused = false;
+    gameOver = false;
+    flashTimer = 0;
+    updateStats();
+    spawn();
+    $overlay.classList.add('hidden');
+    requestAnimationFrame(loop);
+  }
+
+  function endGame() {
+    gameOver = true;
+    running = false;
+    drawBoard();
+    showOverlay('GAME OVER', `점수: ${score}  ·  라인: ${lines}`, '다시 하기');
+  }
+
+  function togglePause() {
+    if (!running || gameOver) return;
+    paused = !paused;
+    if (paused) {
+      showOverlay('일시정지', 'P 또는 Esc를 눌러 계속', '계속하기');
+    } else {
+      $overlay.classList.add('hidden');
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+  }
+
+  function showOverlay(title, msg, btn) {
+    $overlayTitle.textContent = title;
+    $overlayMsg.textContent = msg;
+    $startBtn.textContent = btn;
+    $overlay.classList.remove('hidden');
+  }
+
+  function loop(time) {
+    if (!running || paused) return;
+    const delta = time - lastTime;
+    lastTime = time;
+
+    dropCounter += delta;
+    if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - delta);
+    if (messageTimer > 0) messageTimer = Math.max(0, messageTimer - delta);
+
+    if (dropCounter > dropInterval()) {
+      if (!collide(current, 0, 1)) current.y++;
+      else lockPiece();
+      dropCounter = 0;
+    }
+
+    drawBoard();
+    if (running) requestAnimationFrame(loop);
+  }
+
+  // ---------- 입력 ----------
+  document.addEventListener('keydown', e => {
+    if (!running || gameOver) {
+      if (e.code === 'Enter') startGame();
+      return;
+    }
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      togglePause();
+      return;
+    }
+    if (paused) {
+      if (e.code === 'Enter') togglePause();
+      return;
+    }
+
+    switch (e.code) {
+      case 'ArrowLeft': move(-1); break;
+      case 'ArrowRight': move(1); break;
+      case 'ArrowDown': softDrop(); break;
+      case 'ArrowUp':
+      case 'KeyX': rotate(1); break;
+      case 'KeyZ': rotate(-1); break;
+      case 'Space': hardDrop(); break;
+      case 'KeyC':
+      case 'ShiftLeft':
+      case 'ShiftRight': hold(); break;
+      default: return;
+    }
+    e.preventDefault();
+    if (running) drawBoard();
+  });
+
+  $startBtn.addEventListener('click', () => {
+    if (paused) togglePause();
+    else startGame();
+    $startBtn.blur();
+  });
+
+  // 시작 화면용 빈 보드
+  board = createBoard();
+  drawBoard();
+
+  // 글자용 웹폰트가 로드되면 다시 그림 (오프라인이면 맑은 고딕으로 표시)
+  if (document.fonts) {
+    document.fonts.load('40px "Black Han Sans"', '진성아사랑해').then(() => {
+      if (current) drawSide();
+      drawBoard();
+    }).catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
