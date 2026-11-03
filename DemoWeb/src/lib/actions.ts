@@ -3,8 +3,16 @@
 import { refresh } from "next/cache"
 import { redirect } from "next/navigation"
 
-import { hashPassword, mutate, newCommentId, verifyPassword } from "@/lib/db"
+import { hashPassword, sql, verifyPassword } from "@/lib/db"
 import { parseCategory } from "@/lib/queries"
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// 비밀번호 해시를 읽어 맞는지 본다. 없으면 "missing", 틀리면 "denied"
+function check(rows: Record<string, unknown>[], password: string) {
+  if (!rows[0]) return "missing" as const
+  return verifyPassword(password, String(rows[0].password_hash)) ? ("ok" as const) : ("denied" as const)
+}
 
 export type FormState = {
   error?: string
@@ -44,23 +52,10 @@ export async function createPost(_prev: FormState, formData: FormData): Promise<
   const { ok, fieldErrors, values, data } = validatePost(formData, { needAuthor: true })
   if (!ok) return { fieldErrors, values }
 
-  const id = await mutate((db) => {
-    const now = new Date().toISOString()
-    const id = db.nextId++
-    db.posts.push({
-      id,
-      category: data.category,
-      title: data.title,
-      content: data.content,
-      author: data.author,
-      passwordHash: hashPassword(data.password),
-      views: 0,
-      createdAt: now,
-      updatedAt: now,
-      comments: [],
-    })
-    return id
-  })
+  const [{ id }] = await sql`
+    INSERT INTO posts (category, title, content, author, password_hash)
+    VALUES (${data.category}, ${data.title}, ${data.content}, ${data.author}, ${hashPassword(data.password)})
+    RETURNING id`
   redirect(`/posts/${id}`)
 }
 
@@ -72,16 +67,13 @@ export async function updatePost(
   const { ok, fieldErrors, values, data } = validatePost(formData, { needAuthor: false })
   if (!ok) return { fieldErrors, values }
 
-  const result = await mutate((db) => {
-    const post = db.posts.find((p) => p.id === id)
-    if (!post) return "missing"
-    if (!verifyPassword(data.password, post.passwordHash)) return "denied"
-    post.category = data.category
-    post.title = data.title
-    post.content = data.content
-    post.updatedAt = new Date().toISOString()
-    return "ok"
-  })
+  const result = check(await sql`SELECT password_hash FROM posts WHERE id = ${id}`, data.password)
+  if (result === "ok") {
+    await sql`
+      UPDATE posts
+      SET category = ${data.category}, title = ${data.title}, content = ${data.content}, updated_at = now()
+      WHERE id = ${id}`
+  }
   if (result === "missing") return { error: "글을 찾을 수 없습니다.", values }
   if (result === "denied") return { fieldErrors: { password: "비밀번호가 맞지 않습니다." }, values }
   redirect(`/posts/${id}`)
@@ -93,13 +85,9 @@ export async function deletePost(
   formData: FormData
 ): Promise<FormState> {
   const password = String(formData.get("password") ?? "")
-  const result = await mutate((db) => {
-    const index = db.posts.findIndex((p) => p.id === id)
-    if (index < 0) return "missing"
-    if (!verifyPassword(password, db.posts[index].passwordHash)) return "denied"
-    db.posts.splice(index, 1)
-    return "ok"
-  })
+  const result = check(await sql`SELECT password_hash FROM posts WHERE id = ${id}`, password)
+  // 댓글은 ON DELETE CASCADE 로 함께 지워진다.
+  if (result === "ok") await sql`DELETE FROM posts WHERE id = ${id}`
   if (result === "missing") return { error: "이미 삭제된 글입니다." }
   if (result === "denied") return { fieldErrors: { password: "비밀번호가 맞지 않습니다." } }
   redirect("/")
@@ -121,19 +109,12 @@ export async function addComment(
   if (password.length < 4) fieldErrors.password = "4자 이상"
   if (Object.keys(fieldErrors).length) return { fieldErrors, values: { author, content } }
 
-  const found = await mutate((db) => {
-    const post = db.posts.find((p) => p.id === postId)
-    if (!post) return false
-    post.comments.push({
-      id: newCommentId(),
-      author,
-      content,
-      passwordHash: hashPassword(password),
-      createdAt: new Date().toISOString(),
-    })
-    return true
-  })
-  if (!found) return { error: "글을 찾을 수 없습니다.", values: { author, content } }
+  // 글이 이미 지워졌으면 아무 줄도 들어가지 않는다.
+  const inserted = await sql`
+    INSERT INTO comments (post_id, author, content, password_hash)
+    SELECT id, ${author}, ${content}, ${hashPassword(password)} FROM posts WHERE id = ${postId}
+    RETURNING id`
+  if (!inserted.length) return { error: "글을 찾을 수 없습니다.", values: { author, content } }
   refresh()
   return {}
 }
@@ -145,14 +126,11 @@ export async function deleteComment(
   formData: FormData
 ): Promise<FormState> {
   const password = String(formData.get("password") ?? "")
-  const result = await mutate((db) => {
-    const post = db.posts.find((p) => p.id === postId)
-    const index = post?.comments.findIndex((c) => c.id === commentId) ?? -1
-    if (!post || index < 0) return "missing"
-    if (!verifyPassword(password, post.comments[index].passwordHash)) return "denied"
-    post.comments.splice(index, 1)
-    return "ok"
-  })
+  const rows = UUID.test(commentId)
+    ? await sql`SELECT password_hash FROM comments WHERE id = ${commentId} AND post_id = ${postId}`
+    : []
+  const result = check(rows, password)
+  if (result === "ok") await sql`DELETE FROM comments WHERE id = ${commentId}`
   if (result === "missing") return { error: "이미 삭제된 댓글입니다." }
   if (result === "denied") return { fieldErrors: { password: "비밀번호가 맞지 않습니다." } }
   refresh()
@@ -161,8 +139,5 @@ export async function deleteComment(
 
 // 상세 화면에 들어올 때 클라이언트에서 한 번 호출한다(프리페치로 조회수가 오르지 않게).
 export async function countView(id: number) {
-  await mutate((db) => {
-    const post = db.posts.find((p) => p.id === id)
-    if (post) post.views++
-  })
+  await sql`UPDATE posts SET views = views + 1 WHERE id = ${id}`
 }

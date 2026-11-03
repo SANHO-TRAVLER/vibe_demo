@@ -11,8 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `todolist/` | 업무용 퀘스트 보드 웹앱 (가장 활발한 프로젝트) |
 | `english-dict/` | 원서 읽기용 전자사전 "YEONGDONG" (로컬판 + claude.ai판) |
 | `demoport/` | 조향사(향장 향료 크리에이션·어플리케이션) 프로필 웹사이트. 산호초·조개 바다 도트 테마, 모바일 지원. 글은 `content.js`, 도트는 `app.js`의 `pixel.ART`(테두리 자동), 설계는 `prd.md` |
-| `DemoWeb/` | 익명 게시판. 이 저장소에서 유일하게 Next.js 16 · shadcn/ui · TypeScript를 쓴다(`npm run dev`, 포트 3000). 데이터는 `data/db.json`, 쓰기는 `src/lib/actions.ts`의 Server Actions |
-| `shooting.py` | "스카이 웨딩" 종스크롤 게임 (`shooting_v1.py`는 이전 버전) |
+| `DemoWeb/` | 익명 게시판. 이 저장소에서 유일하게 Next.js 16 · shadcn/ui · TypeScript를 쓴다(`npm run dev`, 포트 3000). 데이터는 Neon PostgreSQL(`.env.local`의 `DATABASE_URL`, git 제외), 쓰기는 `src/lib/actions.ts`의 Server Actions. `/api/posts`는 `shooting.py`가 읽으니 응답 모양(`{posts: [{id, title, author}]}`)을 바꾸지 말 것 |
+| `shooting.py` | "스카이 웨딩" 종스크롤 게임 (`shooting_v1.py`는 이전 버전). 결혼식장 하객이 DemoWeb 게시글을 말풍선으로 띄운다(서버가 꺼져 있으면 생략) |
 | `breakout.py`, `snake.py`, `tetris.html` | 작은 게임들 |
 
 ## 실행

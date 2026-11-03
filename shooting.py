@@ -18,16 +18,20 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
      → 키스와 하트 축포 → HAPPILY EVER AFTER와 부케 던지기
 
 게시판 연동
-  DemoWeb 게시판(DemoWeb/data/db.json)의 글 하나마다 하객 한 명이 정해져,
+  DemoWeb 게시판(웹 서버의 /api/posts)의 글 하나마다 하객 한 명이 정해져,
   결혼식장에서 그 글 제목을 말풍선으로 띄웁니다. 식 도중 새 글이 올라오면
-  해당 하객이 폴짝 뛰며 NEW 말풍선을 띄웁니다. 웹 서버가 꺼져 있어도 파일만 있으면 됩니다.
+  해당 하객이 폴짝 뛰며 NEW 말풍선을 띄웁니다. 게시판 웹 서버가 켜져 있어야 하며,
+  꺼져 있으면 말풍선 없이 그대로 진행됩니다.
 """
 import json
 import math
+import os
 import random
 import sys
+import threading
+import time
+import urllib.request
 from array import array
-from pathlib import Path
 
 import pygame
 
@@ -38,8 +42,10 @@ SR = 22050                 # 효과음 샘플링 레이트
 SCROLL = 1.4               # 하늘 장면 지면 스크롤 속도
 FLOOR = 520                # 결혼식장 바닥(발) 높이
 OFFICIANT_CHANCE = 0.12    # 주례 선생님이 부케를 받을 확률 (이스터에그)
-BOARD_DB = Path(__file__).resolve().parent / "DemoWeb" / "data" / "db.json"
-BOARD_POLL = 120           # 게시판 파일을 다시 확인하는 간격(프레임)
+# DemoWeb 게시판 글 목록 API (다른 주소면 환경 변수 DEMOWEB_URL 로 바꾼다)
+BOARD_URL = os.environ.get("DEMOWEB_URL", "http://localhost:3000").rstrip("/") + "/api/posts"
+BOARD_POLL_SEC = 2.0       # 웹 서버에서 글 목록을 다시 받아 오는 간격(초)
+BOARD_POLL = 60            # 받아 둔 목록을 게임에 반영하는 간격(프레임)
 # 글 번호 → 하객 자리. 연달아 쓴 글이 앞뒤 줄로 고루 퍼지도록 섞어 둔 순서
 SEAT_ORDER = [4, 12, 1, 9, 7, 14, 2, 10, 5, 13, 0, 8, 6, 15, 3, 11]
 
@@ -1210,27 +1216,39 @@ class MiniHeart:
 
 
 class Board:
-    """DemoWeb 게시판 글 목록을 파일에서 읽는다 (파일이 바뀌었을 때만 다시 읽음)"""
-    def __init__(self, path=BOARD_DB):
-        self.path = path
-        self.mtime = None
-        self.posts = {}         # 글 번호 → (제목, 작성자)
+    """DemoWeb 게시판 글 목록을 웹 서버(/api/posts)에서 받아 온다.
+    네트워크가 화면을 멈추지 않도록 받아 오기는 뒤쪽 스레드가 BOARD_POLL_SEC 마다 한다."""
+    def __init__(self, url=BOARD_URL):
+        self.url = url
+        self.posts = {}         # 글 번호 → (제목, 작성자). 게임 쪽에서 본 마지막 목록
+        self.loaded = False
+        self._latest = None     # 스레드가 받아 둔 최신 목록
+        self._lock = threading.Lock()
+        threading.Thread(target=self._fetch_loop, daemon=True).start()
+
+    def _fetch_loop(self):
+        while True:
+            try:
+                with urllib.request.urlopen(self.url, timeout=3) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+                posts = {int(p["id"]): (str(p["title"]), str(p["author"])) for p in data["posts"]}
+                with self._lock:
+                    self._latest = posts
+            except (OSError, ValueError, KeyError, TypeError):
+                pass    # 서버가 꺼져 있으면 말풍선 없이 그대로 진행
+            time.sleep(BOARD_POLL_SEC)
 
     def poll(self):
-        """새로 생긴 글 번호 목록을 돌려준다. 파일이 없거나 읽다 실패하면 이전 상태를 유지한다."""
-        try:
-            mtime = self.path.stat().st_mtime
-            if mtime == self.mtime:
-                return []
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            posts = {int(p["id"]): (str(p["title"]), str(p["author"])) for p in data["posts"]}
-        except (OSError, ValueError, KeyError, TypeError):
-            return []
-        first = self.mtime is None
-        self.mtime = mtime
+        """(새로 생긴 글 번호 목록, 이번에 처음 받아 왔는지)를 돌려준다."""
+        with self._lock:
+            posts = self._latest
+        if posts is None:
+            return [], False
+        first = not self.loaded
+        self.loaded = True
         new = [] if first else sorted(set(posts) - set(self.posts))
         self.posts = posts
-        return new
+        return new, first
 
     @staticmethod
     def seat(post_id):
@@ -1329,8 +1347,7 @@ class Ceremony:
         self.fade_in = 1.0
         self.bubbles = []
         game.board.poll()
-        # 처음엔 글을 번호순으로 하나씩 두두둥 띄운다 (자리가 겹치면 최근 글)
-        self.bubble_queue = sorted({Board.seat(i): i for i in sorted(game.board.posts)}.values())
+        self.bubble_queue = self.intro_queue()
         self.bubble_wait = 70
         self.script = self.run_script()
         game.audio.play_music("bgm_hall")
@@ -1701,6 +1718,10 @@ class Ceremony:
         self.update_bubbles()
 
     # ----- 게시판 말풍선 -----
+    def intro_queue(self):
+        """글을 번호순으로 하나씩 두두둥 띄울 차례 (자리가 겹치면 최근 글)"""
+        return sorted({Board.seat(i): i for i in sorted(self.g.board.posts)}.values())
+
     def pop_bubble(self, post_id, new=False):
         post = self.g.board.posts.get(post_id)
         if not post:
@@ -1715,7 +1736,10 @@ class Ceremony:
     def update_bubbles(self):
         board = self.g.board
         if self.t % BOARD_POLL == 0:
-            for post_id in board.poll():
+            new, first = board.poll()
+            if first:   # 식이 시작된 뒤에야 처음 받아 왔으면 그때 한 바퀴 띄운다
+                self.bubble_queue = self.intro_queue()
+            for post_id in new:
                 self.pop_bubble(post_id, new=True)
             # 지워진 글의 말풍선은 거둔다
             self.bubbles = [b for b in self.bubbles if b.post_id in board.posts]

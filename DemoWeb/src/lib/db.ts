@@ -1,20 +1,20 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import path from "node:path"
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto"
 
-// 게시판 데이터는 별도 DB 없이 data/db.json 파일 하나에 저장한다.
-const DATA_DIR = path.join(process.cwd(), "data")
-const DB_FILE = path.join(DATA_DIR, "db.json")
+import { neon } from "@neondatabase/serverless"
 
 import type { Category } from "@/lib/categories"
 
 export { CATEGORIES, type Category } from "@/lib/categories"
 
+// 게시판 데이터는 Neon PostgreSQL에 저장한다. 연결 문자열은 .env.local 의 DATABASE_URL.
+const url = process.env.DATABASE_URL
+if (!url) throw new Error("DATABASE_URL 이 없습니다. DemoWeb/.env.local 을 확인하세요.")
+const raw = neon(url)
+
 export type Comment = {
   id: string
   author: string
   content: string
-  passwordHash: string
   createdAt: string
 }
 
@@ -24,16 +24,9 @@ export type Post = {
   title: string
   content: string
   author: string
-  passwordHash: string
   views: number
   createdAt: string
   updatedAt: string
-  comments: Comment[]
-}
-
-type Database = {
-  nextId: number
-  posts: Post[]
 }
 
 // 비밀번호는 salt를 붙인 scrypt 해시("salt:hash")로만 보관한다.
@@ -51,70 +44,84 @@ export function verifyPassword(password: string, stored: string) {
   return timingSafeEqual(expected, actual)
 }
 
-function seed(): Database {
-  const now = Date.now()
-  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString()
-  const pw = hashPassword("1234")
+// 처음 쓸 때 한 번 테이블을 만들고, 글이 하나도 없으면 샘플 글을 넣는다.
+// 개발 서버는 여러 곳에서 동시에 이 함수를 부를 수 있으므로, 잠금을 건 한 트랜잭션 안에서 한다.
+async function setup() {
   const samples: Array<[Category, string, string, string]> = [
     ["공지", "게시판 이용 안내", "글을 쓸 때 정한 비밀번호로 수정·삭제할 수 있습니다.\n샘플 글의 비밀번호는 1234 입니다.", "운영자"],
     ["자유", "첫 글 남겨봅니다", "새 게시판이 열렸네요. 다들 반갑습니다!", "산호"],
     ["질문", "Next.js 16에서 캐시는 어떻게 동작하나요?", "cacheComponents 옵션을 켜면 무엇이 달라지는지 궁금합니다.", "궁금이"],
     ["정보", "shadcn/ui 컴포넌트 추가하는 법", "npx shadcn@latest add button 처럼 필요한 컴포넌트만 골라 넣으면 됩니다.", "개발자"],
   ]
-  const posts: Post[] = samples.map(([category, title, content, author], i) => ({
-    id: i + 1,
-    category,
-    title,
-    content,
-    author,
-    passwordHash: pw,
-    views: 0,
-    createdAt: at((samples.length - i) * 90),
-    updatedAt: at((samples.length - i) * 90),
-    comments: [],
-  }))
-  return { nextId: posts.length + 1, posts }
+  const col = (i: number) => samples.map((s) => s[i])
+  const times = samples.map((_, i) => new Date(Date.now() - (samples.length - i) * 90 * 60_000).toISOString())
+
+  await raw.transaction([
+    raw`SELECT pg_advisory_xact_lock(20261103)`,
+    raw`
+      CREATE TABLE IF NOT EXISTS posts (
+        id            serial PRIMARY KEY,
+        category      text NOT NULL,
+        title         text NOT NULL,
+        content       text NOT NULL,
+        author        text NOT NULL,
+        password_hash text NOT NULL,
+        views         integer NOT NULL DEFAULT 0,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      )`,
+    raw`
+      CREATE TABLE IF NOT EXISTS comments (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        post_id       integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        author        text NOT NULL,
+        content       text NOT NULL,
+        password_hash text NOT NULL,
+        created_at    timestamptz NOT NULL DEFAULT now()
+      )`,
+    raw`CREATE INDEX IF NOT EXISTS comments_post_id_idx ON comments (post_id)`,
+    raw`
+      INSERT INTO posts (category, title, content, author, password_hash, created_at, updated_at)
+      SELECT s.category, s.title, s.content, s.author, ${hashPassword("1234")}, s.at, s.at
+      FROM unnest(${col(0)}::text[], ${col(1)}::text[], ${col(2)}::text[], ${col(3)}::text[],
+                  ${times}::timestamptz[]) WITH ORDINALITY AS s(category, title, content, author, at, n)
+      WHERE NOT EXISTS (SELECT 1 FROM posts)
+      ORDER BY s.n`,
+  ])
 }
 
-async function load(): Promise<Database> {
-  try {
-    return JSON.parse(await readFile(DB_FILE, "utf8")) as Database
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err
-    const db = seed()
-    await save(db)
-    return db
+let ready: Promise<void> | null = null
+
+// 모든 쿼리는 이 함수로 한다. 테이블 준비가 끝난 뒤에 실행된다.
+export async function sql(strings: TemplateStringsArray, ...values: unknown[]) {
+  ready ??= setup().catch((err) => {
+    ready = null
+    throw err
+  })
+  await ready
+  return raw(strings, ...values) as Promise<Record<string, unknown>[]>
+}
+
+const iso = (v: unknown) => (v instanceof Date ? v : new Date(String(v))).toISOString()
+
+export function toPost(row: Record<string, unknown>): Post {
+  return {
+    id: Number(row.id),
+    category: row.category as Category,
+    title: String(row.title),
+    content: String(row.content ?? ""),
+    author: String(row.author),
+    views: Number(row.views),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
   }
 }
 
-async function save(db: Database) {
-  await mkdir(DATA_DIR, { recursive: true })
-  // 임시 파일에 쓴 뒤 바꿔치기해서 쓰는 도중 파일이 깨지지 않게 한다.
-  const tmp = `${DB_FILE}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(db, null, 2), "utf8")
-  await rename(tmp, DB_FILE)
-}
-
-// 쓰기 작업이 겹치지 않도록 한 줄로 세운다.
-let queue: Promise<unknown> = Promise.resolve()
-
-export function read<T>(fn: (db: Database) => T): Promise<T> {
-  const run = queue.then(async () => fn(await load()))
-  queue = run.catch(() => {})
-  return run
-}
-
-export function mutate<T>(fn: (db: Database) => T): Promise<T> {
-  const run = queue.then(async () => {
-    const db = await load()
-    const result = fn(db)
-    await save(db)
-    return result
-  })
-  queue = run.catch(() => {})
-  return run
-}
-
-export function newCommentId() {
-  return randomUUID()
+export function toComment(row: Record<string, unknown>): Comment {
+  return {
+    id: String(row.id),
+    author: String(row.author),
+    content: String(row.content),
+    createdAt: iso(row.created_at),
+  }
 }

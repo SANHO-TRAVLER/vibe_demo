@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -40,5 +41,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# 게시판 데이터
+# 예전 파일 저장소 시절의 게시판 데이터 (지금은 Neon DB를 쓴다)
 /data/

@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CATEGORIES, type Category } from "@/lib/db"
+import { CATEGORIES, type Category } from "@/lib/categories"
 import { formatListDate } from "@/lib/format"
 import { listPosts, parseCategory } from "@/lib/queries"
 import { cn } from "@/lib/utils"
