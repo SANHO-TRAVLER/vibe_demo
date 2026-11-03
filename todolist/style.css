@@ -2,6 +2,7 @@
 :root {
   --bg: #fff4e6;
   --dot: #f5dfc6;
+  --paper: #fff4e6;
   --surface: #fffdf8;
   --ink: #5b4636;
   --text: #4a3a2e;
@@ -24,6 +25,7 @@
   :root {
     --bg: #1d1b2b;
     --dot: #29263b;
+    --paper: #1d1b2b;
     --surface: #2b2840;
     --ink: #0f0d18;
     --text: #f3ece4;
@@ -339,7 +341,7 @@ button, input { font: inherit; color: inherit; }
   box-shadow: 4px 4px 0 0 var(--line);
 }
 
-.quest.story.completed { background: var(--bg); }
+.quest.story.completed { background: var(--paper); }
 
 .story-head {
   display: flex;
@@ -554,6 +556,10 @@ button, input { font: inherit; color: inherit; }
 
 .critter.talking { z-index: 4; }
 
+/* 오브제: 캐릭터처럼 뛰지 않고 제자리에, 바뀔 때 톡 나타난다 */
+.prop svg { animation: none; }
+.prop.appear svg { animation: pop 0.3s steps(3); }
+
 .critter.talking .bubble {
   visibility: visible;
   opacity: 1;
@@ -612,9 +618,9 @@ button, input { font: inherit; color: inherit; }
 
 @media (max-width: 699px) {
   .stage {
-    --edge: 30px;
-    --critter: 36px;
-    padding: 64px 0;
+    --edge: 34px;
+    --critter: 48px;
+    padding: 72px 0;
   }
 
   .bubble { max-width: 140px; }
@@ -623,4 +629,956 @@ button, input { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .critter svg,
   .critter.talking .bubble { animation: none; }
+}
+
+/* 마감: 오늘의 노동 */
+.due-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.due-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.due-row input {
+  min-height: 34px;
+  padding: 0 6px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.due-row input[type="date"] { flex: 1 1 0; min-width: 0; }
+.due-row input[type="time"] { flex: 0 1 104px; min-width: 0; }
+.due-label, .due-clear { flex: none; }
+
+.due-row input:focus {
+  outline: none;
+  background: var(--sky-soft);
+}
+
+.due-clear {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.due-tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 2px dashed var(--line);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.due-tag.overdue {
+  border: 2px solid var(--pink-dark);
+  background: var(--pink-soft);
+  color: var(--pink-dark);
+}
+
+.quest.completed .due-tag { opacity: 0.55; }
+
+/* 퀘스트 달력 */
+.calendar {
+  margin: 4px 18px 18px;
+  padding: 10px 12px 12px;
+  border: 3px solid var(--ink);
+  background: var(--surface);
+}
+
+.calendar summary {
+  font-family: "Galmuri14", var(--font);
+  cursor: pointer;
+}
+
+.calendar[open] summary { margin-bottom: 8px; }
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.cal-title {
+  flex: 1;
+  text-align: center;
+  font-family: "Galmuri14", var(--font);
+}
+
+.cal-nav,
+.cal-today {
+  min-width: 36px;
+  height: 32px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cal-today { padding: 0 8px; background: var(--yellow); color: #4a3a2e; }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.cal-dow {
+  padding: 2px 0;
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.cal-dow.sun, .cal-day.sun .cal-num { color: var(--pink-dark); }
+.cal-dow.sat, .cal-day.sat .cal-num { color: #5b8fd0; }
+
+.cal-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  height: 48px;
+  padding: 3px 0 0;
+  border: 2px solid transparent;
+  border-radius: 0;
+  background: var(--paper);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cal-day.outside { opacity: 0.4; }
+.cal-day.today { background: var(--yellow); }
+.cal-day.today .cal-num { color: #4a3a2e; }
+.cal-day.selected { border-color: var(--ink); background: var(--sky-soft); }
+.cal-day.today.selected { background: var(--yellow); }
+
+.cal-day:focus-visible {
+  outline: 2px solid var(--pink-dark);
+  outline-offset: 1px;
+}
+
+/* 일정 있는 날의 곰돌이 포셰트. 여러 마리면 살짝 겹쳐 앉힌다 */
+.cal-bears {
+  display: flex;
+  justify-content: center;
+}
+
+.cal-bears svg {
+  flex: none;
+  width: 20px;
+  height: auto;
+}
+
+.cal-bears svg + svg { margin-left: -12px; }
+
+.cal-day-title {
+  margin: 12px 0 4px;
+  font-family: "Galmuri14", var(--font);
+  font-size: 14px;
+  font-weight: normal;
+}
+
+.cal-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cal-entry { border-bottom: 2px dashed var(--line); }
+
+.entry-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cal-entry.done .entry-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.entry-quest {
+  flex: 0 1 auto;
+  max-width: 40%;
+  padding: 0 6px;
+  border-left: 6px solid var(--quest);
+  background: var(--paper);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-empty {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.entry-form select {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.entry-form input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.entry-form input[type="text"]:focus {
+  outline: none;
+  background: var(--sky-soft);
+}
+
+.entry-form .pixel-btn { min-height: 40px; }
+
+.quest-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 4px 0;
+}
+
+.quest-body .quest-text { flex: 0 1 auto; }
+
+/* 좁은 화면: 난이도 태그는 아이콘만 */
+@media (max-width: 699px) {
+  .diff-tag { padding: 2px 4px; }
+  .diff-tag span { display: none; }
+}
+
+/* 달력 일정 목록: 보기 전용, 누르면 카드로 이동 */
+.cal-entry-btn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-entry-btn:hover { background: var(--sky-soft); }
+
+.cal-entry-btn:focus-visible {
+  outline: 2px solid var(--pink-dark);
+  outline-offset: -2px;
+}
+
+.cal-entry-line {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.cal-entry-extra {
+  flex-basis: 100%;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cal-entry-memo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 일정 상태 꼬리표 */
+.sched-when {
+  flex: none;
+  padding: 0 5px;
+  border: 2px solid var(--line);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sched-when.today { border-color: var(--ink); background: var(--yellow); color: #4a3a2e; }
+.sched-when.overdue { border-color: var(--pink-dark); background: var(--pink-soft); color: var(--pink-dark); }
+.sched-when.done { border-color: var(--green-dark); background: var(--green-soft); color: var(--green-dark); }
+
+/* 스토리 카드의 📅 일정 체크리스트 */
+.schedule {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--line);
+  background: var(--paper);
+}
+
+.schedule-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sched {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 2px dashed var(--line);
+}
+
+.sched:last-child { border-bottom: 0; }
+
+.sched > .pixel-check {
+  width: 16px;
+  height: 16px;
+  margin-top: 6px;
+  border-width: 2px;
+  background-size: 10px;
+}
+
+.sched.flash { animation: flash 1.2s steps(4); }
+
+@keyframes flash {
+  0%, 50% { background: var(--yellow); }
+}
+
+.sched-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.sched-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-height: 28px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sched-summary::-webkit-details-marker { display: none; }
+
+.sched-summary::before {
+  content: "▸";
+  color: var(--pink-dark);
+}
+
+.sched-detail[open] > .sched-summary::before { content: "▾"; }
+
+.sched-summary:focus-visible {
+  outline: 2px solid var(--pink-dark);
+  outline-offset: 2px;
+}
+
+.sched-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sched-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 완료해도 사라지지 않고 줄만 긋는다 */
+.sched.done .sched-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.sched-extra {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sched-body {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--pink);
+  background: var(--surface);
+}
+
+.sched-sub-title,
+.sched-memo-label {
+  display: block;
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sched-memo-label { margin-top: 10px; }
+
+.sched-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sched-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.sched-step .pixel-check { width: 14px; height: 14px; border-width: 2px; background-size: 9px; }
+.sched-step .icon-btn { width: 32px; height: 32px; }
+.sched-step:hover .icon-btn { opacity: 1; }
+
+.sched-step.done .step-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.sched-step-form { margin-top: 4px; }
+
+.sched-memo {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.sched-memo:focus {
+  outline: none;
+  background: var(--sky-soft);
+}
+
+.sched-remove {
+  margin-top: 8px;
+  padding: 2px 8px;
+  border: 2px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sched-remove:hover { border-color: var(--pink-dark); color: var(--pink-dark); }
+
+/* 업무 일지 정보 */
+.journal summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.journal-new {
+  padding: 6px 10px;
+  border: 2px dashed var(--line);
+}
+
+.journal-new[open] { background: var(--surface); }
+
+.journal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 8px;
+  margin-top: 6px;
+}
+
+.journal-field { min-width: 0; }
+.jf-category, .jf-note { grid-column: 1 / -1; }
+
+.journal-field label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.journal .journal-field input,
+.journal .journal-field select,
+.journal .journal-field textarea {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.journal-field textarea { padding: 4px 6px; resize: vertical; }
+
+.journal .journal-field input:focus,
+.journal .journal-field select:focus,
+.journal .journal-field textarea:focus {
+  outline: none;
+  background: var(--sky-soft);
+}
+
+/* 퀘스트 안의 일지 정보: 단기 퀘스트에서는 줄 아래로 펼친다 */
+.quest.daily { flex-wrap: wrap; }
+.quest.daily > .journal { flex-basis: 100%; margin: 0 0 8px 30px; }
+.quest.story > .journal { margin-top: 8px; }
+
+.journal-line {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.quest.story > .journal-line { margin-top: 4px; }
+
+.journal-cat {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+/* 엑셀 추출 */
+.export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 12px;
+}
+
+.export-btn { min-height: 40px; font-size: 13px; }
+.export-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.export-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 날짜 이동 */
+.day-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.day-btn {
+  min-width: 36px;
+  height: 34px;
+  padding: 0 8px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.day-btn:disabled { opacity: 0.4; cursor: default; }
+.day-today { background: var(--yellow); color: #4a3a2e; }
+
+#day-picker {
+  height: 34px;
+  padding: 0 6px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.past-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 2px dashed var(--ink);
+  background: var(--sky-soft);
+  font-size: 12px;
+}
+
+.past-banner.future { background: var(--green-soft); }
+
+/* 오늘 보드 아래: 미리 적어 둔 앞날의 노동 */
+.upcoming {
+  display: block;
+  width: calc(100% - 36px);
+  margin: 10px 18px 0;
+  padding: 6px 10px;
+  border: 2px dashed var(--green-dark);
+  background: var(--green-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 전날에서 넘어온 일 */
+.carry-tag {
+  flex: none;
+  padding: 0 5px;
+  border: 2px solid var(--line);
+  background: var(--paper);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.quest.flash { animation: flash 1.2s steps(4); }
+
+/* 업무 이력 검색 */
+.search {
+  position: relative;
+  margin-top: 10px;
+  max-width: 560px;
+}
+
+#search-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+#search-input:focus { outline: none; background: var(--sky-soft); }
+
+.search-results {
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  border: 3px solid var(--ink);
+  background: var(--surface);
+  box-shadow: 4px 4px 0 0 var(--line);
+}
+
+.search-count {
+  margin: 0;
+  padding: 6px 10px;
+  border-bottom: 2px dashed var(--line);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.search-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px dashed var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-hit:hover,
+.search-hit:focus-visible { background: var(--sky-soft); outline: none; }
+
+.search-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.search-status {
+  padding: 0 5px;
+  border: 2px solid var(--line);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.search-status.done { border-color: var(--green-dark); color: var(--green-dark); background: var(--green-soft); }
+
+.search-meta,
+.search-why {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.search-results mark {
+  background: var(--yellow);
+  color: #4a3a2e;
+}
+
+/* 옆 레일: 보드 양옆 여백을 위아래로 꽉 채우고, 안의 캐릭터는 스크롤을 따라 내려온다 */
+.rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--edge) * 2);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.rail-left { left: 0; }
+.rail-right { right: 0; }
+
+.rail-inner {
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 110px;
+  padding-top: 130px;
+}
+
+.critter.in-rail {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: translateX(var(--dx, 0));
+  pointer-events: auto;
+}
+
+/* 넓은 화면: 여백을 시원하게. 캐릭터·머리글 버튼·보드가 서로 붙어 보이지 않게 */
+@media (min-width: 1000px) {
+  .app {
+    max-width: 1360px;
+    padding: 40px 32px 72px;
+  }
+
+  .header { margin-bottom: 24px; }
+  .day-nav { margin-top: 14px; }
+  .past-banner { margin-top: 14px; }
+  .search { margin-top: 16px; }
+  .export { margin-top: 16px; }
+
+  .stage {
+    --edge: 64px;
+    padding: 136px 128px 128px;
+  }
+
+  .board { gap: 48px; }
+
+  /* 옆 레일 캐릭터: 위 줄과 넉넉히 떨어져서 시작하고, 화면 높이에 맞춰 띄엄띄엄 */
+  .rail-inner {
+    top: 120px;
+    gap: max(170px, 30vh);
+    padding-top: 230px;
+  }
+}
+
+/* ---------- 테마 ---------- */
+.app { position: relative; z-index: 1; }
+
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.theme-label { font-size: 12px; color: var(--text-muted); }
+
+.theme-picker { display: flex; gap: 6px; }
+
+.theme-btn {
+  height: 32px;
+  padding: 0 10px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.theme-btn[aria-pressed="true"] {
+  background: var(--yellow);
+  color: #4a3a2e;
+  box-shadow: inset 0 -3px 0 0 #e8a93a;
+}
+
+/* 🎄 크리스마스: 빨강·초록 키 컬러, 짙은 초록 밤하늘 */
+:root[data-theme="christmas"] {
+  --bg: #1f4a35;
+  --dot: #285c43;
+  --paper: #f7efe2;
+  --surface: #fffaf2;
+  --ink: #3b2a22;
+  --text: #3b2a22;
+  --text-muted: #7d6b5c;
+  --line: #ecd9c6;
+  --green: #4fa865;
+  --green-dark: #2f7d4a;
+  --green-soft: #e1f2e3;
+  --pink: #ef7d84;
+  --pink-dark: #c8323c;
+  --pink-soft: #fde3e3;
+  --yellow: #ffd35c;
+  --sky-soft: #fff0ee;
+  --warning-bg: #fff1c2;
+}
+
+/* 짙은 배경 위 머리글 글자는 밝게 */
+:root[data-theme="christmas"] .header h1,
+:root[data-theme="christmas"] .today,
+:root[data-theme="christmas"] .theme-label,
+:root[data-theme="christmas"] .export-status { color: #fff6e8; }
+:root[data-theme="christmas"] .eyebrow { color: #ff9aa0; }
+:root[data-theme="christmas"] .daily-panel .panel-head { background: #d9efdd; }
+:root[data-theme="christmas"] .story-panel .panel-head { background: #fbd9d9; }
+:root[data-theme="christmas"] .pixel-btn { background: #c8323c; color: #fff6e8; box-shadow: inset 0 -4px 0 0 #8f1f27; }
+:root[data-theme="christmas"] .theme-btn[aria-pressed="true"] { background: #c8323c; color: #fff6e8; box-shadow: inset 0 -3px 0 0 #8f1f27; }
+
+/* 뒤쪽 장면: 쌓인 눈 · 큰 트리 · 선물 (보드 뒤에 깔린다) */
+.xmas-back {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.xmas-ground {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  background-color: #ffffff;
+  background-image: radial-gradient(#dcebf8 30%, transparent 32%);
+  background-size: 12px 12px;
+}
+
+/* 물결무늬로 소복이 쌓인 눈 윗면 */
+.xmas-ground::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 40px;
+  background: var(--snow-wave) repeat-x bottom left / 128px 40px;
+  image-rendering: pixelated;
+}
+
+/* 큰 트리: 창 높이를 꽉 채우고, 밑동은 바닥에 쌓인 눈 속에 폭 박힌다.
+   --px = 트리 도트 한 칸 크기 (트리 88칸이 창 높이에 맞도록). 선물도 같은 칸 크기로. */
+.xmas-back { --px: calc((100vh - 40px) / 88); }
+
+.xmas-tree {
+  position: absolute;
+  right: 2vw;
+  bottom: 40px;
+  width: auto;
+  height: calc(var(--px) * 88);
+  aspect-ratio: 64 / 88;
+}
+
+/* 트리 밑 선물 더미: 트리 한가운데 아래, 눈 위에 */
+.xmas-gifts {
+  position: absolute;
+  right: calc(2vw - var(--px) * 4);
+  bottom: 52px;
+  width: calc(var(--px) * 72);
+  height: auto;
+  aspect-ratio: 72 / 30;
+}
+
+/* 앞쪽: 송송 내리는 동그란 눈 */
+.xmas-snow {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.flake {
+  position: absolute;
+  top: -20px;
+  animation: snowfall linear infinite;
+}
+
+.flake svg { display: block; }
+
+@keyframes snowfall {
+  0% { transform: translate(0, -5vh); }
+  50% { transform: translate(var(--sway), 50vh); }
+  100% { transform: translate(0, 105vh); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xmas-snow { display: none; }
 }

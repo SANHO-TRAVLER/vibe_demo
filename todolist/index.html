@@ -16,7 +16,37 @@
     <header class="header">
       <p class="eyebrow">QUEST BOARD</p>
       <h1>노동 게시판</h1>
+      <div class="theme-row">
+        <span class="theme-label">🎨 테마</span>
+        <div id="theme-picker" class="theme-picker" role="group" aria-label="테마 고르기"></div>
+      </div>
       <p id="today" class="today"></p>
+
+      <!-- 보는 날짜: 지난 날짜를 고르면 그날의 보드(남아 있던 일 + 끝낸 일)를 보여 준다 -->
+      <div class="day-nav">
+        <button type="button" class="day-btn" data-day="prev" aria-label="전날">◀</button>
+        <label for="day-picker" class="visually-hidden">보는 날짜</label>
+        <input id="day-picker" type="date">
+        <button type="button" class="day-btn" data-day="next" aria-label="다음 날">▶</button>
+        <button type="button" class="day-btn day-today" data-day="today">오늘</button>
+      </div>
+      <p id="past-banner" class="past-banner" hidden>
+        <span id="past-banner-text"></span>
+        <button type="button" class="day-btn" data-day="today">오늘로 돌아가기</button>
+      </p>
+
+      <!-- 업무 이력 검색: 퀘스트 내용, 일지 정보, 세부 목표, 일정·메모까지 -->
+      <div class="search">
+        <label for="search-input" class="visually-hidden">업무 이력 검색</label>
+        <input id="search-input" type="search" autocomplete="off"
+               placeholder="🔍 지난 업무 찾기 (업체명, 제품명, 담당자, 메모…)">
+        <div id="search-results" class="search-results" hidden></div>
+      </div>
+
+      <div class="export">
+        <button type="button" id="export-btn" class="pixel-btn export-btn">📥 이 날 일지 엑셀로 받기</button>
+        <span id="export-status" class="export-status" role="status"></span>
+      </div>
     </header>
 
     <!-- 캐릭터들이 가장자리에 둘러앉는 무대 (app.js의 critters가 채움) -->
@@ -53,6 +83,18 @@
               <span><span data-icon="sword"></span>토벌 <small>고난도</small></span>
             </label>
           </fieldset>
+          <!-- 마감은 선택: 시간만 고르면 오늘, 둘 다 비우면 마감 없음 -->
+          <div class="due-row">
+            <span class="due-label">⏰ 마감</span>
+            <label for="daily-due-date" class="visually-hidden">마감 날짜</label>
+            <input id="daily-due-date" name="due-date" type="date">
+            <label for="daily-due-time" class="visually-hidden">마감 시간</label>
+            <input id="daily-due-time" name="due-time" type="time">
+            <button type="button" class="due-clear" data-action="clear-due" aria-label="마감 지우기">✕</button>
+          </div>
+          <details class="journal journal-new" data-journal-slot="daily">
+            <summary>📋 일지 정보 (선택)</summary>
+          </details>
           <div class="form-row">
             <label for="daily-input" class="visually-hidden">새 단기 퀘스트</label>
             <input id="daily-input" type="text" maxlength="100" placeholder="빠르게 끝낼 일을 적어요" autofocus>
@@ -62,6 +104,7 @@
 
         <ul id="daily-list" class="quest-list"></ul>
         <p id="daily-empty" class="empty" hidden>게시판이 비어 있어요. 오늘의 노동을 받아 볼까요?</p>
+        <button type="button" id="upcoming" class="upcoming" data-action="go-day" hidden></button>
       </section>
 
       <!-- 장기 퀘스트: 오래 붙잡고 연구할 주제 -->
@@ -75,11 +118,46 @@
           <span id="story-count" class="badge"></span>
         </div>
 
-        <form class="quest-form" data-type="story" autocomplete="off">
-          <label for="story-input" class="visually-hidden">새 장기 퀘스트</label>
-          <input id="story-input" type="text" maxlength="100" placeholder="오래 연구할 주제를 적어요">
-          <button type="submit" class="pixel-btn">수주</button>
+        <form class="quest-form daily-form" data-type="story" autocomplete="off">
+          <details class="journal journal-new" data-journal-slot="story">
+            <summary>📋 일지 정보 (선택)</summary>
+          </details>
+          <div class="form-row">
+            <label for="story-input" class="visually-hidden">새 장기 퀘스트</label>
+            <input id="story-input" type="text" maxlength="100" placeholder="오래 연구할 주제를 적어요">
+            <button type="submit" class="pixel-btn">수주</button>
+          </div>
         </form>
+
+        <!-- 퀘스트 달력: 날짜별로 스토리 퀘스트의 할 일을 기록 (app.js의 calendar가 채움) -->
+        <details class="calendar" open>
+          <summary>📅 퀘스트 달력</summary>
+          <div class="cal-head">
+            <button type="button" class="cal-nav" data-action="cal-prev" aria-label="이전 달">◀</button>
+            <span id="cal-title" class="cal-title"></span>
+            <button type="button" class="cal-nav" data-action="cal-next" aria-label="다음 달">▶</button>
+            <button type="button" class="cal-today" data-action="cal-today">오늘</button>
+          </div>
+          <div class="cal-grid" aria-hidden="true">
+            <span class="cal-dow sun">일</span><span class="cal-dow">월</span><span class="cal-dow">화</span>
+            <span class="cal-dow">수</span><span class="cal-dow">목</span><span class="cal-dow">금</span>
+            <span class="cal-dow sat">토</span>
+          </div>
+          <div id="cal-days" class="cal-grid cal-days"></div>
+
+          <h3 id="cal-day-title" class="cal-day-title"></h3>
+          <ul id="cal-entries" class="cal-entries"></ul>
+          <p id="cal-empty" class="cal-empty" hidden></p>
+          <form id="entry-form" class="entry-form" autocomplete="off">
+            <label for="entry-quest" class="visually-hidden">기록할 스토리 퀘스트</label>
+            <select id="entry-quest"></select>
+            <div class="form-row">
+              <label for="entry-input" class="visually-hidden">이 날의 할 일</label>
+              <input id="entry-input" type="text" maxlength="100" placeholder="이 날 할 일을 적어요">
+              <button type="submit" class="pixel-btn">기록</button>
+            </div>
+          </form>
+        </details>
 
         <ul id="story-list" class="quest-list story-list"></ul>
         <p id="story-empty" class="empty" hidden>아직 시작한 스토리 퀘스트가 없어요.</p>
