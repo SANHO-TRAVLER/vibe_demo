@@ -8,6 +8,12 @@
       "port": 8123
     },
     {
+      "name": "todolist-db",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "todolist", "run", "dev"],
+      "port": 8126
+    },
+    {
       "name": "english-dict",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8124", "--bind", "127.0.0.1", "--directory", "english-dict"],

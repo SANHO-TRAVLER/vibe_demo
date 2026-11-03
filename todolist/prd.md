@@ -511,3 +511,28 @@ interface Step {
 - 트리는 **창 높이를 꽉 채운다** (도트 한 칸 = `(100vh - 40px) / 88`). 화면 오른쪽에 서고, 밑동은 바닥에 쌓인 눈 속에 폭 박힌다 (쌓인 눈이 밑동 위를 덮는다). 선물 더미도 같은 칸 크기로 트리 아래 눈 위에 쌓인다. 장면은 보드 뒤에 깔려서 할 일은 가리지 않는다.
 - **내리는 눈:** 동그란 픽셀 눈송이(5×5) 48개가 9~19초에 걸쳐 좌우로 살랑이며 떨어진다. 클릭은 그대로 통과하고, 움직임 줄이기 설정이면 내리지 않는다.
 - 그림은 `tools/sprites.py`의 `chubby_star`, `star_trio`, `xmas_tree`, `xmas_gifts`, `snowflake`.
+
+---
+
+## 18. Neon DB 연결 · 여러 컴퓨터 (v0.9)
+
+### 18.1 목표
+- 회사·집 등 여러 컴퓨터에서 같은 데이터를 쓴다 → Vercel 에 올리고 Neon PostgreSQL 에 저장한다.
+- 업무 정보(업체명 등)가 담기므로 **비밀번호 잠금**을 둔다.
+- Neon 프로젝트 **TO DO LIST_CHIIKAWA**: `main` = 백지 템플릿(표 구조만), `FOR COMPANY TASK` = 실제 데이터. 백지로 돌아가기는 Neon 의 *Reset from parent*, 표 구조 변경은 마이그레이션 스크립트가 두 브랜치에 똑같이 적용한다 → "별개이면서 유기적".
+
+### 18.2 구조
+- `api/session.js` (GET 로그인 여부), `api/login.js` (POST 로그인 / DELETE 로그아웃), `api/quests.js` (GET 전체 / PUT 바뀐 것만).
+- 로그인: `APP_PASSWORD` 와 비교(해시 후 일정 시간 비교, 틀리면 0.6초 지연) → `만료시각.HMAC서명` 쿠키(`HttpOnly`, `SameSite=Lax`, https 면 `Secure`, 30일). 쓰는 요청은 `application/json` 만 받는다.
+- 표 `quests (id text PK, data jsonb, created_at, updated_at, deleted_at)` — 퀘스트 한 개 = 한 줄. 지우면 `deleted_at` 만 찍는다(되살릴 수 있게).
+- 마이그레이션: `db/migrations/NNN_*.sql` + `db/migrate.mjs` (두 브랜치, `schema_migrations` 로 적용 기록, 템플릿에 데이터가 있으면 경고). 백업: `db/backup.mjs`.
+- 로컬 개발: `dev-server.mjs` (`npm run dev`, 포트 8126) 가 Vercel 과 같은 화면 파일 + `api/` 를 돌린다. 화면 파일 외(.env·db·tools·prd)는 내주지 않는다.
+- Vercel 에는 `.vercelignore` 로 `prd.md`·`tools/`·`db/`·`.env`·`dev-server.mjs` 를 빼고 올린다.
+
+### 18.3 앱의 동기화 (`app.js` 의 `sync`)
+- 시작할 때 `/api/session` 이 있으면 **DB 모드**, 없으면(python http.server) 예전처럼 **브라우저 저장 모드**.
+- DB 모드: 로그인 문 → 불러오기 → `store.replaceAll()`. 이후 저장할 때마다(`storage.onSave`) 0.7초 모았다가, 서버에 마지막으로 저장된 모습과 **달라진 퀘스트만** 보낸다(400개씩). 실패하면 점점 길게 기다리며 다시 시도.
+- 다른 컴퓨터의 변경: 창으로 돌아올 때와 90초마다 가져온다 (보내지 못한 변경이 있으면 먼저 보낸 뒤).
+- 머리글에 `☁️ 저장됨 / 저장 중… / ⚠ 저장 실패` 와 로그아웃. 로그아웃하면 화면과 브라우저 사본의 업무 데이터를 지운다 (DB 는 그대로).
+- 처음 DB 에 연결할 때 DB 가 비어 있고 이 브라우저에 퀘스트가 있으면 올릴지 묻는다. 올리지 않으면 브라우저 쪽은 `todayTodo.v1.todos.local-backup` 에 따로 보관한다.
+- 테마 선택은 지금처럼 브라우저마다 따로 기억한다.

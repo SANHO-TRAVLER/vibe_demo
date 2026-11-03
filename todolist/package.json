@@ -1,0 +1,13 @@
+{
+  "name": "todolist-quest-board",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "migrate": "node db/migrate.mjs",
+    "backup": "node db/backup.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0"
+  }
+}

@@ -8,6 +8,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- DB 모드의 문: 로그인 / 불러오는 중 (app.js 의 sync) -->
+  <div id="gate" class="gate" hidden>
+    <div class="gate-box pixel-box">
+      <p id="gate-text" class="gate-text"></p>
+      <form id="login-form" class="login-form" autocomplete="on" hidden>
+        <label for="login-password" class="visually-hidden">비밀번호</label>
+        <input id="login-password" type="password" autocomplete="current-password" placeholder="비밀번호">
+        <button type="submit" class="pixel-btn">들어가기</button>
+        <p id="login-error" class="login-error" role="alert"></p>
+      </form>
+    </div>
+  </div>
+
   <main class="app">
     <div id="storage-warning" class="banner pixel-box" role="alert" hidden>
       이 브라우저에서는 저장할 수 없어요. 페이지를 닫으면 퀘스트가 사라집니다.
@@ -16,6 +29,11 @@
     <header class="header">
       <p class="eyebrow">QUEST BOARD</p>
       <h1>노동 게시판</h1>
+      <!-- DB 모드일 때만 보인다: 저장 상태 + 로그아웃 -->
+      <div id="sync-row" class="sync-row" hidden>
+        <span id="sync-status" class="sync-status" role="status"></span>
+        <button type="button" id="logout-btn" class="day-btn">로그아웃</button>
+      </div>
       <div class="theme-row">
         <span class="theme-label">🎨 테마</span>
         <div id="theme-picker" class="theme-picker" role="group" aria-label="테마 고르기"></div>

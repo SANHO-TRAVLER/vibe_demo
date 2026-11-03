@@ -41,6 +41,7 @@ python english-dict/tools/build_cloud.py        # cloud/ → cloud/dist/yeongdon
 - **업무일지 양식이 핵심 요구사항이다.** 모든 퀘스트에는 일지 필드(`category`, `company`, `product`, `researcher`, `bm`, `qa`, `note`)가 붙고, `exporter`가 실제 업무일지와 같은 양식의 xlsx를 만든다(구분별 최소 줄 수, A열 병합, 맑은 고딕 9pt 등). ExcelJS는 버튼을 누를 때만 CDN에서 불러온다. 일지 양식 호환을 깨지 않아야 하고, 중요 일정은 완료해도 사라지면 안 된다.
 - 캐릭터 도트는 `tools/sprites.py`로 만들고, 출력한 JSON을 `app.js`의 `pixel.ART`에 넣는다.
 - 계절 테마는 `theme` 모듈의 `THEMES` 배열에서 관리한다.
+- **DB 모드 (Neon + Vercel).** `api/`(session·login·quests)와 `app.js`의 `sync` 모듈이 퀘스트를 Neon `quests` 표(퀘스트 한 개 = `jsonb` 한 줄)와 맞춘다. `/api/session`이 없으면(python http.server) 브라우저 저장 모드로 동작한다. Neon 프로젝트 TO DO LIST_CHIIKAWA의 `main` = 백지 템플릿, `FOR COMPANY TASK` = 실제 데이터. 표 구조는 `db/migrations/NNN_*.sql`을 추가하고 `npm --prefix todolist run migrate`로 두 브랜치에 같이 적용한다. 비밀 값은 `todolist/.env`(git 제외), 로컬 확인은 `npm --prefix todolist run dev`(포트 8126). 자세한 건 `todolist/README.md`.
 - `prd.md`는 설계 기록이다. 기능이 바뀔 때마다 버전별 장(§12 v0.2 → §17 v0.8 …)을 덧붙여 왔으니, 큰 변경을 하면 새 장을 추가한다.
 
 ## english-dict

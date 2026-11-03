@@ -49,7 +49,11 @@ const storage = (() => {
     }
   }
 
+  // 저장할 때마다 불리는 함수들 (DB 모드에서는 sync 가 여기에 붙어 바뀐 것을 서버로 보낸다)
+  const hooks = [];
+
   function save(quests) {
+    hooks.forEach((fn) => fn(quests));
     if (!available) return;
     try {
       localStorage.setItem(QUESTS_KEY, JSON.stringify(quests));
@@ -58,7 +62,17 @@ const storage = (() => {
     }
   }
 
-  return { load, save, isAvailable: () => available, KEY: QUESTS_KEY };
+  // 브라우저에만 있던 데이터를 따로 떼어 보관 (DB 로 옮기지 않기로 했을 때)
+  function backup(quests, suffix) {
+    try { localStorage.setItem(`${QUESTS_KEY}.${suffix}`, JSON.stringify(quests)); } catch {}
+  }
+
+  return {
+    load, save, backup, normalize,
+    onSave: (fn) => hooks.push(fn),
+    isAvailable: () => available,
+    KEY: QUESTS_KEY,
+  };
 })();
 
 // ---------- journal ----------
@@ -1058,6 +1072,11 @@ const store = (() => {
   return {
     getState: () => state,
     subscribe: (fn) => listeners.push(fn),
+    // DB 에서 받아 온 목록으로 통째로 바꾼다 (다른 컴퓨터에서 고친 내용 반영)
+    replaceAll(quests) {
+      state.quests = quests.map(storage.normalize);
+      commit();
+    },
     ...actions,
   };
 })();
@@ -2098,6 +2117,208 @@ const exporter = (() => {
   return { download, build };
 })();
 
+// ---------- sync ----------
+// Neon DB 와 맞추기. Vercel(또는 npm run dev)로 열면 /api 가 있어 'DB 모드'가 되고,
+// python http.server 로 열면 /api 가 없어 지금처럼 브라우저 저장만 쓴다.
+// 브라우저 저장(localStorage)은 DB 모드에서도 화면을 빨리 띄우기 위한 사본으로 남는다.
+const sync = (() => {
+  const SAVE_DELAY = 700;       // 마지막으로 고친 뒤 이만큼 조용하면 서버로 보낸다
+  const PULL_EVERY = 90_000;    // 다른 컴퓨터에서 고친 내용 가져오기
+  const CHUNK = 400;
+  const SYNCED_FLAG = `${storage.KEY}.synced`;
+
+  // local: DB 없음 / loading: 불러오는 중 / server: DB 와 맞추는 중 / locked: 로그인 필요
+  let mode = 'local';
+  let synced = new Map();       // 서버에 마지막으로 저장된 모습: id → JSON
+  let timer = null;
+  let inflight = false;
+  let dirty = false;
+  let retry = 0;
+
+  const el = {
+    row: document.getElementById('sync-row'),
+    status: document.getElementById('sync-status'),
+    logout: document.getElementById('logout-btn'),
+    gate: document.getElementById('gate'),
+    gateText: document.getElementById('gate-text'),
+    form: document.getElementById('login-form'),
+    password: document.getElementById('login-password'),
+    error: document.getElementById('login-error'),
+  };
+
+  const snapshot = (quests) => new Map(quests.map((q) => [q.id, JSON.stringify(q)]));
+
+  function setStatus(kind, text) {
+    el.status.dataset.kind = kind;
+    el.status.textContent = text;
+  }
+
+  function showGate(text, withLogin) {
+    el.gate.hidden = false;
+    el.gateText.textContent = text;
+    el.form.hidden = !withLogin;
+    if (withLogin) el.password.focus();
+  }
+
+  function locked() {
+    mode = 'locked';
+    clearTimeout(timer);
+    synced = new Map();
+    setStatus('locked', '🔒 로그인이 필요해요');
+    showGate('🔒 노동 게시판에 들어가려면 비밀번호를 넣어 주세요.', true);
+  }
+
+  async function request(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.status === 401 && path !== '/api/login') {
+      locked();
+      throw new Error('로그인이 필요해요');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+    return data;
+  }
+
+  // 고친 뒤 잠깐 기다렸다가, 서버 사본과 달라진 퀘스트만 보낸다
+  function schedule() {
+    if (mode !== 'server') return;
+    dirty = true;
+    setStatus('saving', '☁️ 저장 중…');
+    clearTimeout(timer);
+    timer = setTimeout(flush, SAVE_DELAY);
+  }
+
+  async function flush() {
+    if (mode !== 'server') return;
+    if (inflight) { timer = setTimeout(flush, SAVE_DELAY); return; }
+    const quests = store.getState().quests;
+    const now = snapshot(quests);
+    const upserts = quests.filter((q) => synced.get(q.id) !== now.get(q.id));
+    const deletes = [...synced.keys()].filter((id) => !now.has(id));
+    dirty = false;
+    if (!upserts.length && !deletes.length) { setStatus('ok', '☁️ 저장됨'); return; }
+    inflight = true;
+    try {
+      for (let i = 0; i < Math.max(upserts.length, deletes.length); i += CHUNK) {
+        const up = upserts.slice(i, i + CHUNK);
+        const del = deletes.slice(i, i + CHUNK);
+        await request('PUT', '/api/quests', { upserts: up, deletes: del });
+        up.forEach((q) => synced.set(q.id, now.get(q.id)));
+        del.forEach((id) => synced.delete(id));
+      }
+      retry = 0;
+      if (!dirty) setStatus('ok', '☁️ 저장됨');
+    } catch (err) {
+      if (mode !== 'server') return;
+      dirty = true;
+      retry++;
+      setStatus('error', `⚠ 저장 실패 · 다시 시도 중 (${err.message})`);
+      timer = setTimeout(flush, Math.min(30_000, 2000 * retry));
+    } finally {
+      inflight = false;
+    }
+  }
+
+  // 서버 내용을 받아 화면을 바꾼다 (보내지 못한 변경이 있으면 먼저 보낸 뒤에)
+  async function pull() {
+    if (mode !== 'server' || dirty || inflight) return;
+    try {
+      const { quests } = await request('GET', '/api/quests');
+      if (dirty || inflight) return;
+      synced = snapshot(quests.map(storage.normalize));
+      store.replaceAll(quests);
+      setStatus('ok', '☁️ 저장됨');
+    } catch {}
+  }
+
+  async function load() {
+    mode = 'loading';
+    showGate('☁️ 노동 게시판을 불러오는 중…', false);
+    try {
+      const { quests } = await request('GET', '/api/quests');
+      const local = store.getState().quests;
+      let firstSync = false;
+      try { firstSync = !localStorage.getItem(SYNCED_FLAG); } catch {}
+      if (firstSync && !quests.length && local.length) {
+        // 이 브라우저에서 쓰던 퀘스트를 처음으로 DB 에 올릴지 묻는다
+        const upload = window.confirm(
+          `이 브라우저에 있던 퀘스트 ${local.length}개를 DB(FOR COMPANY TASK)에 올릴까요?\n\n`
+          + '취소하면 브라우저 쪽 데이터는 따로 보관해 두고, DB 의 빈 보드로 시작해요.',
+        );
+        mode = 'server';
+        if (upload) {
+          synced = new Map();
+          schedule();
+        } else {
+          storage.backup(local, 'local-backup');
+          synced = new Map();
+          store.replaceAll([]);
+        }
+      } else {
+        mode = 'server';
+        synced = snapshot(quests.map(storage.normalize));
+        store.replaceAll(quests);
+        setStatus('ok', '☁️ 저장됨');
+      }
+      try { localStorage.setItem(SYNCED_FLAG, '1'); } catch {}
+      el.gate.hidden = true;
+    } catch (err) {
+      if (mode === 'locked') return;
+      mode = 'loading';
+      showGate(`⚠ DB 에 연결하지 못했어요: ${err.message}\n잠시 뒤 새로고침해 주세요.`, false);
+    }
+  }
+
+  async function start() {
+    let res;
+    try {
+      res = await fetch('/api/session', { cache: 'no-store', credentials: 'same-origin' });
+    } catch {
+      return; // 파일로 연 경우 등 → 브라우저 저장 모드
+    }
+    if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return;
+    const { authenticated } = await res.json();
+    el.row.hidden = false;
+    storage.onSave(schedule);
+    if (authenticated) await load();
+    else locked();
+
+    el.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      el.error.textContent = '';
+      try {
+        await request('POST', '/api/login', { password: el.password.value });
+        el.password.value = '';
+        await load();
+      } catch (err) {
+        el.error.textContent = err.message;
+        el.password.select();
+      }
+    });
+
+    el.logout.addEventListener('click', async () => {
+      try { await request('DELETE', '/api/login'); } catch {}
+      // 화면과 브라우저 사본에서 업무 데이터를 지운다 (DB 는 그대로)
+      locked();
+      store.replaceAll([]);
+    });
+
+    // 다른 컴퓨터에서 고친 내용: 창으로 돌아올 때와 주기적으로 가져온다
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+    setInterval(() => { if (!document.hidden) pull(); }, PULL_EVERY);
+    // 닫기 직전에 못 보낸 게 있으면 바로 보낸다
+    window.addEventListener('pagehide', () => { if (dirty) flush(); });
+  }
+
+  return { start };
+})();
+
 // ---------- controller ----------
 (() => {
   function shake(form) {
@@ -2424,6 +2645,7 @@ const exporter = (() => {
   store.subscribe(critters.update);
   view.render(store.getState());
   critters.update(store.getState());
+  sync.start();
 
   // 마감 지남·D-day·오늘 표시가 시간이 흐르면서 바뀌도록 1분마다 다시 그린다
   // (카드 안 입력창에 쓰는 중이면 글이 날아가지 않게 건너뛴다)

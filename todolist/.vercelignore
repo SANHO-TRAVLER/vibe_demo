@@ -1,0 +1,10 @@
+# Vercel에는 화면(index.html·app.js·style.css)과 api/ 만 올린다.
+# 설계 기록·도구·DB 스크립트·비밀 값은 인터넷에 공개되지 않게 뺀다.
+.env
+.env.*
+prd.md
+README.md
+tools/
+db/
+backups/
+dev-server.mjs
