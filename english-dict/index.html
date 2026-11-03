@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>YEONGDONG 전자사전</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="desk">
+  <div class="device">
+
+    <!-- ── 윗판(액정) ── -->
+    <div class="lid">
+      <div class="lid-top">
+        <span class="brand">YEONGDONG</span>
+        <span class="model-name">ED-7700 · ENGLISH READING COMPANION</span>
+        <span class="lid-led" id="led" title="통신 상태"></span>
+      </div>
+
+      <div class="bezel">
+        <div class="lcd" id="lcd">
+          <div class="statusbar">
+            <span class="sb-mode" id="sbMode">문장 입력</span>
+            <span class="sb-model" id="sbModel"></span>
+            <span class="sb-right">
+              <span id="sbCount"></span>
+              <span class="sb-clock" id="sbClock">--:--</span>
+              <span class="battery"><i></i><i></i><i></i></span>
+            </span>
+          </div>
+
+          <nav class="tabs" id="tabs">
+            <button data-view="input" class="on"><b>1</b>문장 입력</button>
+            <button data-view="result"><b>2</b>단어 해설</button>
+            <button data-view="pron"><b>3</b>발음 교정</button>
+            <button data-view="book"><b>4</b>단어장</button>
+            <button data-view="settings"><b>5</b>설정</button>
+          </nav>
+
+          <main class="views">
+
+            <!-- 1. 문장 입력 -->
+            <section class="view on" id="view-input">
+              <div class="col col-main">
+                <div class="win grow">
+                  <div class="win-title">
+                    <span>원문</span>
+                    <span class="win-actions">
+                      <button class="kbtn" id="btnEditText" hidden>✎ 다시 편집</button>
+                      <button class="kbtn" id="btnClearText">지우기</button>
+                    </span>
+                  </div>
+
+                  <!-- 편집 모드 -->
+                  <div class="win-body editor" id="editor">
+                    <input class="lcd-input" id="bookTitle" placeholder="책 제목 (선택) — 예: The Great Gatsby">
+                    <textarea class="lcd-input big" id="textInput" spellcheck="false"
+                      placeholder="읽은 문장을 타이핑하거나 붙여넣으세요.&#10;책 사진은 아래 칸에 끌어다 놓거나 Ctrl+V 로 붙여넣으면 글자를 읽어 옵니다."></textarea>
+                    <div class="ocr-check" id="ocrCheck" hidden></div>
+                    <div class="dropzone" id="dropzone">
+                      <input type="file" id="fileInput" accept="image/*" hidden>
+                      <div class="dz-thumb" id="dzThumb"></div>
+                      <div class="dz-text">
+                        <b>📷 책 사진으로 입력</b>
+                        <span id="dzMsg">여기에 이미지를 끌어다 놓거나, 클릭해서 고르거나, Ctrl+V 로 붙여넣기<br>글자를 읽어 오면 내용을 확인하고 [문장 확정]을 누르세요 (내 컴퓨터에서 처리, 무료)</span>
+                      </div>
+                    </div>
+                    <div class="row-end">
+                      <button class="kbtn primary" id="btnConfirmText">문장 확정 ▶</button>
+                    </div>
+                  </div>
+
+                  <!-- 단어 체크 모드 -->
+                  <div class="win-body reader" id="reader" hidden>
+                    <div class="reader-help">모르는 단어를 <b>클릭</b>하세요. 여러 단어로 된 구(phrase)는 <b>드래그</b>해서 묶을 수 있어요. 체크한 걸 다시 클릭하면 해제됩니다.</div>
+                    <div class="passage" id="passage"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col col-side">
+                <div class="win grow">
+                  <div class="win-title"><span>모르는 단어 · 나의 유추</span><span id="markCount">0개</span></div>
+                  <div class="win-body scroll" id="markList">
+                    <div class="empty">원문을 확정한 뒤<br>모르는 단어를 체크하세요.</div>
+                  </div>
+                  <div class="win-foot">
+                    <button class="kbtn primary wide" id="btnAnalyze" disabled>사전 찾기 · 정답 확인 (Ctrl+Enter)</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 2. 단어 해설 -->
+            <section class="view" id="view-result">
+              <div class="empty big-empty" id="resultEmpty">아직 해설이 없어요.<br>[1 문장 입력]에서 단어를 체크하고 채점을 받아 보세요.</div>
+              <div class="result-wrap" id="resultWrap" hidden>
+                <div class="win translation">
+                  <div class="win-title"><span>전체 해석</span><span class="win-actions"><button class="kbtn" id="btnSpeakAll">🔊 원문 듣기</button><button class="kbtn" id="btnSaveAll">★ 전부 단어장에</button></span></div>
+                  <div class="win-body">
+                    <div class="tr-src" id="trSrc"></div>
+                    <div class="tr-ko" id="trKo"></div>
+                  </div>
+                </div>
+                <div class="result-main">
+                  <div class="win item-list">
+                    <div class="win-title"><span>단어 목록</span></div>
+                    <div class="win-body scroll" id="itemList"></div>
+                  </div>
+                  <div class="detail scroll" id="detail"></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 3. 발음 교정 -->
+            <section class="view" id="view-pron">
+              <div class="col col-main">
+                <div class="win">
+                  <div class="win-title">
+                    <span>따라 읽을 문장</span>
+                    <span class="win-actions">
+                      <button class="kbtn" id="btnPronFromInput">원문 가져오기</button>
+                      <button class="kbtn" id="btnPronEdit">✎ 편집</button>
+                    </span>
+                  </div>
+                  <div class="win-body">
+                    <textarea class="lcd-input mid" id="pronInput" spellcheck="false" hidden placeholder="연습할 문장을 입력하세요"></textarea>
+                    <div class="pron-target" id="pronTarget"></div>
+                    <div class="pron-legend">
+                      <span><i class="lg ok"></i>잘 들림</span>
+                      <span><i class="lg sub"></i>다르게 들림(위에 들린 말)</span>
+                      <span><i class="lg miss"></i>안 들림</span>
+                      <span class="dim">단어를 클릭하면 그 단어만 천천히 들려줘요</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pron-controls">
+                  <div class="ctrl-group">
+                    <button class="kbtn big-btn" id="btnListen">▶ 원어민 듣기</button>
+                    <label class="ctrl">속도 <input type="range" id="rate" min="0.5" max="1.3" step="0.05" value="0.9"><span id="rateVal">0.90x</span></label>
+                    <label class="ctrl">목소리 <select class="lcd-input" id="voiceSel"></select></label>
+                  </div>
+                  <div class="ctrl-group">
+                    <button class="kbtn big-btn rec" id="btnRec">● 녹음 시작</button>
+                    <button class="kbtn big-btn" id="btnPlayMine" disabled>▶ 내 목소리</button>
+                    <button class="kbtn big-btn primary" id="btnCoach" disabled>교정 팁 보기</button>
+                  </div>
+                </div>
+
+                <div class="win grow">
+                  <div class="win-title"><span>인식 결과</span><span id="pronScore"></span></div>
+                  <div class="win-body scroll">
+                    <div class="heard" id="heard"><span class="dim">녹음 버튼을 누르고 문장을 소리 내어 읽어 보세요. 다 읽으면 다시 눌러 멈춥니다.</span></div>
+                    <div class="extra" id="extraWords"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col col-side">
+                <div class="win grow">
+                  <div class="win-title"><span>발음 코칭</span></div>
+                  <div class="win-body scroll" id="coach">
+                    <div class="empty">녹음 후 [교정 팁 보기]를 누르면<br>다르게 들린 단어마다 원인과 교정법,<br>실제 원어민 녹음을 보여 드려요.</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 4. 단어장 -->
+            <section class="view" id="view-book">
+              <div class="col col-side narrow">
+                <div class="win grow">
+                  <div class="win-title"><span>내 단어장</span><span id="bookCount"></span></div>
+                  <div class="win-body">
+                    <input class="lcd-input" id="bookSearch" placeholder="검색…">
+                  </div>
+                  <div class="win-body scroll" id="bookList"></div>
+                </div>
+              </div>
+              <div class="col col-main">
+                <div class="detail scroll" id="bookDetail"><div class="empty big-empty">왼쪽에서 단어를 고르세요.</div></div>
+              </div>
+            </section>
+
+            <!-- 5. 설정 -->
+            <section class="view" id="view-settings">
+              <div class="col col-main">
+                <div class="win">
+                  <div class="win-title"><span>무료 도구 상태</span></div>
+                  <div class="win-body form">
+                    <ul class="status-list" id="toolStatus"></ul>
+                    <p class="note">이 버전은 API 키 없이 무료 도구만 씁니다. 영영 뜻·발음 녹음은 Free Dictionary,
+                      어원·영한 뜻은 위키낱말사전(Wiktionary), 번역은 Chrome 내장 번역기(없으면 MyMemory), 사진 글자 인식은 Tesseract를 써요.</p>
+                    <p class="note">AI 채점·유추 사유 첨삭·문맥 해설이 필요하면 claude.ai 버전을 여세요:<br>
+                      <a href="https://claude.ai/artifact/UJNtyDtRCcMg6sau61i8GJ" target="_blank" rel="noopener">claude.ai/artifact/UJNtyDtRCcMg6sau61i8GJ</a></p>
+                  </div>
+                </div>
+                <div class="win">
+                  <div class="win-title"><span>데이터</span></div>
+                  <div class="win-body form">
+                    <div class="row-end left">
+                      <button class="kbtn" id="btnExport">단어장 내보내기 (CSV)</button>
+                      <button class="kbtn" id="btnBackup">백업 (JSON)</button>
+                      <button class="kbtn" id="btnRestore">복원</button>
+                      <input type="file" id="restoreFile" accept=".json" hidden>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col col-side">
+                <div class="win grow">
+                  <div class="win-title"><span>사용법</span></div>
+                  <div class="win-body scroll help">
+                    <ol>
+                      <li>원서를 읽고 모르는 단어를 문맥으로 먼저 유추해 봅니다.</li>
+                      <li><b>[1 문장 입력]</b>에 문장을 쓰거나 책 사진을 넣고 확정합니다.</li>
+                      <li>모르는 단어를 클릭(구는 드래그)하고, 오른쪽에 <b>유추한 뜻</b>과 <b>유추 사유</b>를 적습니다.</li>
+                      <li><b>사전 찾기</b>를 누르면 <b>[2 단어 해설]</b>에 영영 · 영한 · 어원 · 문장 해석이 나와요. 영영사전에서 이 문장에 맞는 뜻을 고르고, 내 유추가 맞았는지 직접 판정하세요.</li>
+                      <li><b>[3 발음 교정]</b>에서 원어민 음성을 듣고, 녹음해서 어디가 다르게 들리는지 확인하세요.</li>
+                    </ol>
+                    <p class="note">단축키: <b>Alt+1~5</b> 화면 전환 · <b>Ctrl+Enter</b> 채점 · <b>Alt+R</b> 녹음 · <b>Alt+L</b> 듣기</p>
+                    <p class="note">발음 인식은 Chrome / Edge 의 음성 인식을 씁니다. 처음 녹음할 때 마이크 권한을 허용해 주세요.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </main>
+
+          <div class="hintbar" id="hint">◆ 원서를 읽다가 막힌 문장을 넣어 보세요</div>
+
+          <div class="cropper" id="cropper" hidden>
+            <div class="crop-bar">
+              <b>읽을 부분을 드래그해서 고르세요</b>
+              <span class="dim">문장이 있는 부분만 고르면 훨씬 정확해요. 고르지 않으면 사진 전체를 읽어요.</span>
+              <span class="crop-actions">
+                <button class="kbtn" id="cropRotate">⟳ 돌리기</button>
+                <button class="kbtn" id="cropCancel">취소</button>
+                <button class="kbtn primary" id="cropGo">글자 읽기 ▶</button>
+              </span>
+            </div>
+            <div class="crop-stage" id="cropStage"><canvas id="cropCanvas"></canvas><div class="crop-rect" id="cropRect" hidden></div></div>
+          </div>
+
+          <div class="busy" id="busy" hidden>
+            <div class="busy-box">
+              <div class="busy-title" id="busyText">해석 중</div>
+              <div class="busy-bar"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="busy-sub">잠시만 기다려 주세요…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lid-bottom">
+        <span class="grill"></span>
+        <span class="lid-label">TFT COLOR LCD · 7.7"</span>
+        <span class="grill"></span>
+      </div>
+    </div>
+
+    <!-- ── 경첩 ── -->
+    <div class="hinge"><span></span><span></span></div>
+
+    <!-- ── 아랫판(키보드) ── -->
+    <div class="base">
+      <div class="keyboard" id="keyboard">
+        <div class="krow fn">
+          <button class="key f" data-view="input">입력</button>
+          <button class="key f" data-view="result">해설</button>
+          <button class="key f" data-view="pron">발음</button>
+          <button class="key f" data-view="book">단어장</button>
+          <button class="key f" data-view="settings">설정</button>
+          <span class="kgap"></span>
+          <button class="key s" data-act="listen">🔊 듣기</button>
+          <button class="key s red" data-act="rec">● 녹음</button>
+        </div>
+        <div class="krow" data-row="qwertyuiop"></div>
+        <div class="krow" data-row="asdfghjkl"></div>
+        <div class="krow" data-row="zxcvbnm"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
