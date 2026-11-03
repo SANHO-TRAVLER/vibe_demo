@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SANHO · Perfumer</title>
+  <meta name="description" content="향장 향료 크리에이션 · 어플리케이션 조향사 프로필">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SANHO · Perfumer">
+  <meta property="og:description" content="향장 향료 크리에이션 · 어플리케이션 조향사 프로필">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/galmuri.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#about">본문으로 건너뛰기</a>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top">
+        <span data-sprite="pearl" data-scale="3"></span>
+        <span data-bind="name"></span>
+      </a>
+      <nav aria-label="섹션 이동">
+        <ul class="nav-links">
+          <li><a href="#about">소개</a></li>
+          <li><a href="#expertise">전문 분야</a></li>
+          <li><a href="#works">작업</a></li>
+          <li><a href="#experience">경력</a></li>
+          <li><a href="#contact">연락</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- 히어로: 바닷속 -->
+    <section class="sea hero" aria-labelledby="hero-name">
+      <div class="sea-life" aria-hidden="true"></div>
+
+      <div class="hero-card pixel-box">
+        <p class="hero-hello">
+          <span data-sprite="heart" data-scale="2"></span>
+          Hello, I'm
+        </p>
+        <h1 id="hero-name" data-bind="name"></h1>
+        <p class="hero-role"><span data-bind="title"></span> · <span data-bind="role"></span></p>
+        <p class="hero-tagline" data-bind="tagline"></p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="#contact">연락하기</a>
+          <a class="btn" href="#expertise">작업 보기</a>
+        </div>
+      </div>
+
+      <div class="seabed" aria-hidden="true">
+        <span class="deco sway" data-sprite="seaweed" data-outline="N" data-scale="5" style="left:6%; --b:70px"></span>
+        <span class="deco" data-sprite="coral2" data-scale="6" style="left:14%; --b:62px"></span>
+        <span class="deco sway slow wide" data-sprite="seaweed" data-outline="N" data-scale="4" style="left:24%; --b:66px"></span>
+        <span class="deco wide" data-sprite="scallop" data-scale="4" style="left:31%; --b:40px"></span>
+        <span class="deco wide" data-sprite="starfish" data-scale="3" style="left:44%; --b:24px"></span>
+        <span class="deco" data-sprite="clam" data-scale="5" style="left:60%; --b:42px"></span>
+        <span class="deco wide" data-sprite="coral" data-scale="5" data-recolor="C:#f3a3a6,c:#fcd2d2,D:#de8088" style="left:73%; --b:64px"></span>
+        <span class="deco" data-sprite="coral" data-scale="6" style="left:84%; --b:66px"></span>
+        <span class="deco sway" data-sprite="seaweed" data-outline="N" data-scale="5" style="left:93%; --b:70px"></span>
+      </div>
+    </section>
+
+    <!-- 소개 -->
+    <section id="about" class="section">
+      <h2 class="section-title reveal">
+        <span data-sprite="pearl" data-scale="4"></span>
+        <span>소개<small>About</small></span>
+      </h2>
+      <div class="about pixel-box reveal">
+        <div class="about-art" aria-hidden="true">
+          <span data-sprite="clam" data-scale="7"></span>
+        </div>
+        <div class="about-text"></div>
+      </div>
+    </section>
+
+    <!-- 전문 분야 -->
+    <section id="expertise" class="section">
+      <h2 class="section-title reveal">
+        <span data-sprite="bottle" data-scale="4"></span>
+        <span>전문 분야<small>Expertise</small></span>
+      </h2>
+      <div class="expertise-grid" id="expertise-grid"></div>
+
+      <h3 class="sub-title reveal">작업 흐름</h3>
+      <ol class="process" id="process"></ol>
+
+      <div class="tags reveal">
+        <div class="tag-group">
+          <h3 class="sub-title">다뤄 본 제품</h3>
+          <ul class="chips sea-chips" id="product-tags"></ul>
+        </div>
+        <div class="tag-group">
+          <h3 class="sub-title">향 계열</h3>
+          <ul class="chips coral-chips" id="family-tags"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 작업 -->
+    <section id="works" class="section">
+      <h2 class="section-title reveal">
+        <span data-sprite="scallop" data-scale="4"></span>
+        <span>작업<small>Works</small></span>
+      </h2>
+      <p class="section-note reveal">고객사와 처방은 비공개이며, 제품군과 향 계열만 소개합니다.</p>
+      <div class="works-grid" id="works-grid"></div>
+    </section>
+
+    <!-- 경력 -->
+    <section id="experience" class="section">
+      <h2 class="section-title reveal">
+        <span data-sprite="starfish" data-scale="3"></span>
+        <span>경력<small>Experience</small></span>
+      </h2>
+      <ol class="timeline" id="timeline"></ol>
+    </section>
+
+    <!-- 연락: 다시 바닷속 -->
+    <div class="surface" aria-hidden="true"></div>
+    <section id="contact" class="sea contact" aria-labelledby="contact-title">
+      <div class="sea-life" aria-hidden="true"></div>
+
+      <div class="contact-card pixel-box reveal">
+        <span data-sprite="envelope" data-scale="5"></span>
+        <h2 id="contact-title">연락하기</h2>
+        <p>향 개발 의뢰, 협업, 채용 문의 모두 반갑습니다.</p>
+        <p class="email" data-email>
+          <noscript>sanho5785 [at] naver.com</noscript>
+        </p>
+        <div class="btn-row center">
+          <a class="btn btn-primary" data-mailto href="#contact">메일 보내기</a>
+          <button class="btn" type="button" data-copy>주소 복사</button>
+        </div>
+      </div>
+
+      <div class="seabed" aria-hidden="true">
+        <span class="deco sway" data-sprite="seaweed" data-outline="N" data-scale="5" style="left:8%; --b:70px"></span>
+        <span class="deco wide" data-sprite="coral" data-scale="5" style="left:18%; --b:64px"></span>
+        <span class="deco" data-sprite="scallop" data-scale="4" style="left:30%; --b:44px"></span>
+        <span class="deco wide" data-sprite="starfish" data-scale="3" style="left:68%; --b:30px"></span>
+        <span class="deco" data-sprite="coral2" data-scale="5" data-recolor="C:#f3a3a6,c:#fcd2d2,D:#de8088" style="left:80%; --b:62px"></span>
+        <span class="deco sway slow" data-sprite="seaweed" data-outline="N" data-scale="4" style="left:91%; --b:66px"></span>
+        <p class="footer-text">© <span data-year></span> <span data-bind="name"></span> · Perfumer</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" role="status" aria-live="polite"></div>
+
+  <script src="content.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
