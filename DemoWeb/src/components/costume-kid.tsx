@@ -100,14 +100,14 @@ function Kid({ kind }: { kind: Costume }) {
         {body}
         <path d="M50 76 L50 104" />
       </g>
-      {/* 얼굴 */}
+      {/* 웃는 얼굴: 발그레한 볼 + 반달 눈(^ ^) + 활짝 웃는 입 (게임과 같은 얼굴) */}
       <circle cx="50" cy="52" r="17" fill={face} />
       {kind === "chick" && <path d="M44 33 L56 33 L50 40 Z" fill="var(--ink-coral)" />}
-      <circle cx="43.5" cy="50" r="2.3" fill="var(--ink-text)" />
-      <circle cx="56.5" cy="50" r="2.3" fill="var(--ink-text)" />
-      <circle cx="39" cy="57" r="3" fill={face === "var(--ink-pink)" ? "var(--ink-purple)" : "var(--ink-coral)"} opacity=".7" />
-      <circle cx="61" cy="57" r="3" fill={face === "var(--ink-pink)" ? "var(--ink-purple)" : "var(--ink-coral)"} opacity=".7" />
-      <path d="M47 59 Q50 61.5 53 59" fill="none" stroke="var(--ink-text)" strokeWidth="1.6" strokeLinecap="round" />
+      <ellipse cx="38.5" cy="57.5" rx="5" ry="3.2" fill={face === "var(--ink-pink)" ? "var(--ink-coral)" : "var(--ink-pink)"} />
+      <ellipse cx="61.5" cy="57.5" rx="5" ry="3.2" fill={face === "var(--ink-pink)" ? "var(--ink-coral)" : "var(--ink-pink)"} />
+      <path d="M40.5 51.5 Q43.5 46.5 46.5 51.5 M53.5 51.5 Q56.5 46.5 59.5 51.5" fill="none" stroke="var(--ink-text)"
+        strokeWidth="2" strokeLinecap="round" />
+      <path d="M45.5 56 Q50 63.5 54.5 56 Z" fill="var(--ink-coral)" stroke="var(--ink-text)" strokeWidth="1.4" strokeLinejoin="round" />
     </g>
   )
 }

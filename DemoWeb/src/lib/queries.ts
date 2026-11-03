@@ -19,9 +19,16 @@ export async function listEntries(page = 1) {
   return { entries, total: Number(total), page: current, pageCount }
 }
 
+export type EntranceGuest = { id: number; nickname: string; message: string }
+
 // 하객 입장 애니메이션(/entrance)에 나올 하객: 최근 글 24개를 먼저 쓴 순서대로
 export async function listEntrance(limit = 24) {
   await connection()
+  return entranceGuests(limit)
+}
+
+// 글을 남긴 직후(Server Action)에도 쓰므로 connection() 없이 조회만 하는 부분
+export async function entranceGuests(limit = 24): Promise<EntranceGuest[]> {
   const rows = await sql`
     SELECT id, nickname, message FROM (
       SELECT id, nickname, message FROM guestbook ORDER BY id DESC LIMIT ${limit}

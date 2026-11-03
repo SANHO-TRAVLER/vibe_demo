@@ -3,6 +3,7 @@
 import { refresh } from "next/cache"
 
 import { hashPassword, MESSAGE_MAX, NICKNAME_MAX, sql, verifyPassword } from "@/lib/db"
+import { entranceGuests, type EntranceGuest } from "@/lib/queries"
 
 export type FormState = {
   ok?: boolean
@@ -10,6 +11,9 @@ export type FormState = {
   fieldErrors?: Partial<Record<"nickname" | "message" | "password", string>>
   // React가 제출 뒤 폼을 비우므로, 오류가 나면 입력값을 돌려줘 다시 채운다.
   values?: Partial<Record<"nickname" | "message", string>>
+  // 글을 남긴 직후 바로 틀어 줄 하객 입장 애니메이션용: 방금 쓴 글 번호와 최근 하객들
+  newId?: number
+  guests?: EntranceGuest[]
 }
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim()
@@ -27,11 +31,12 @@ export async function addEntry(_prev: FormState, formData: FormData): Promise<Fo
   if (password.length < 4) fieldErrors.password = "비밀번호는 4자 이상이에요."
   if (Object.keys(fieldErrors).length) return { fieldErrors, values: { nickname, message } }
 
-  await sql`
+  const [{ id }] = await sql`
     INSERT INTO guestbook (nickname, message, password_hash)
-    VALUES (${nickname}, ${message}, ${hashPassword(password)})`
+    VALUES (${nickname}, ${message}, ${hashPassword(password)})
+    RETURNING id`
   refresh()
-  return { ok: true }
+  return { ok: true, newId: Number(id), guests: await entranceGuests() }
 }
 
 export async function deleteEntry(id: number, _prev: FormState, formData: FormData): Promise<FormState> {

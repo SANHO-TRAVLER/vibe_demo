@@ -201,7 +201,15 @@
 }
 @keyframes couple-in {
   0% { top: 140%; scale: 1.15; }
-  100% { top: 52%; scale: 0.9; }
+  100% { top: 62%; scale: 0.9; }   /* 문의 '결혼식장 들어가기' 버튼을 가리지 않는 자리 */
+}
+/* 문 버튼: 콩닥콩닥 (하객들 위에 떠 있다) */
+.door-btn {
+  animation: door-beat 1.4s ease-in-out infinite;
+}
+@keyframes door-beat {
+  0%, 100% { scale: 1; }
+  50% { scale: 1.07; }
 }
 .couple-banner {
   opacity: 0;
@@ -233,7 +241,8 @@
 /* 움직임을 줄이고 싶은 사람에게는 마지막 장면만 보여 준다 */
 @media (prefers-reduced-motion: reduce) {
   .walker, .walker-bubble, .heart { display: none; }
-  .couple-walk { animation: none; top: 52%; }
+  .couple-walk { animation: none; top: 62%; }
+  .door-btn { animation: none; }
   .couple-banner, .entrance-end { animation: none; opacity: 1; }
   .walker-bob { animation: none; }
 }

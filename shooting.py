@@ -1090,22 +1090,30 @@ class CostumePainter:
                 pygame.draw.circle(s, _CORAL, (int(x + side * 1.15 * r) + 1, int(y + 0.1 * r) + 1), int(0.2 * r), 1)
 
     def draw_face(self, s, x, y, r, turn=0.0, closed=False, blush=False):
-        """동그란 얼굴. turn(-1~1)만큼 얼굴이 옆으로 돌아간다(옆모습 캐릭터용)"""
+        """동그랗게 웃는 얼굴: 반달 눈(^ ^) + 활짝 웃는 입 + 발그레한 볼.
+        turn(-1~1)만큼 얼굴이 옆으로 돌아간다(옆모습 캐릭터용). closed 는 지그시 감은 눈(키스할 때)."""
         k = self.k
+        lw = max(2, round(1.8 * k))
         fx, fy = x + turn * 0.18 * r, y + 0.12 * r
         pygame.draw.circle(s, self.face, (int(fx), int(fy)), int(0.66 * r))
-        cheek = _CORAL if self.face != _PINK else _PURPLE
+        # 볼터치: 얼굴과 다른 잉크로 큼직한 타원 (핑크 얼굴엔 코랄)
+        cheek = _CORAL if self.face == _PINK else _PINK
+        bw, bh = (0.36 * r, 0.22 * r) if blush else (0.3 * r, 0.18 * r)
         for side in (-1, 1):
-            ex = fx + side * 0.24 * r + turn * 0.08 * r
-            ey = fy - 0.05 * r
-            if closed:      # 감은 눈: 웃는 반달
-                pygame.draw.arc(s, INK_TEXT, (ex - 0.1 * r, ey - 0.06 * r, 0.2 * r, 0.16 * r), 0, math.pi, max(1, round(1.4 * k)))
-            else:
-                pygame.draw.circle(s, INK_TEXT, (int(ex), int(ey)), max(1, round(1.6 * k)))
-            pygame.draw.circle(s, cheek, (int(fx + side * 0.42 * r + turn * 0.05 * r), int(fy + 0.2 * r)),
-                               max(1, round((2.6 if blush else 1.8) * k)))
-        mx = fx + turn * 0.06 * r
-        pygame.draw.line(s, INK_TEXT, (mx - 0.08 * r, fy + 0.3 * r), (mx + 0.08 * r, fy + 0.3 * r), max(1, round(1.2 * k)))
+            cx = fx + side * 0.4 * r + turn * 0.05 * r
+            pygame.draw.ellipse(s, cheek, (cx - bw / 2, fy + 0.13 * r, bw, bh))
+        for side in (-1, 1):
+            ex = fx + side * 0.25 * r + turn * 0.08 * r
+            ey = fy - 0.02 * r
+            eye = (ex - 0.14 * r, ey - 0.1 * r, 0.28 * r, 0.24 * r)
+            # 웃는 눈은 위로 볼록(^), 감은 눈은 아래로 볼록
+            pygame.draw.arc(s, INK_TEXT, eye, math.pi if closed else 0, math.tau if closed else math.pi, lw)
+        # 활짝 웃는 입: 아래로 둥근 반원 + 속은 코랄
+        mx, my, mw = fx + turn * 0.06 * r, fy + 0.2 * r, 0.26 * r
+        pts = [(mx + math.cos(a) * mw / 2, my + math.sin(a) * mw * 0.45) for a in
+               [i * math.pi / 8 for i in range(9)]]
+        pygame.draw.polygon(s, _CORAL, pts)
+        pygame.draw.lines(s, INK_TEXT, True, pts, max(1, round(1.2 * k)))
         if self.costume == "chick":     # 부리 모자
             pygame.draw.polygon(s, _CORAL, [(x - 0.2 * r, y - 0.7 * r), (x + 0.2 * r, y - 0.7 * r), (x, y - 0.45 * r)])
 

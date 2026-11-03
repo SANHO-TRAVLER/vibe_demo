@@ -14,29 +14,40 @@ const WALK = 5.2
 // 방명록 글이 적어도 와글와글해 보이도록, 모자라면 이름 없는 하객으로 채운다
 const MIN_CROWD = 14
 
-type Walker = { key: string; kind: Costume; guest?: Guest }
+type Walker = { key: string; kind: Costume; guest?: Guest; star?: boolean }
 
-function crowd(guests: Guest[]): Walker[] {
-  const total = Math.max(guests.length, MIN_CROWD)
+const walkerOf = (g: Guest, star = false): Walker => ({
+  key: `guest-${g.id}`,
+  kind: COSTUME_KINDS[g.id % COSTUME_KINDS.length], // 옷은 방명록 목록과 같은 id % 7
+  guest: g,
+  star,
+})
+
+// newId(방금 글을 쓴 사람)는 무리 맨 끝, 신랑 신부 바로 앞에 주인공처럼 들어온다
+function crowd(guests: Guest[], newId?: number): Walker[] {
+  const star = guests.find((g) => g.id === newId)
+  const others = guests.filter((g) => g !== star)
+  const total = Math.max(others.length, MIN_CROWD)
   const walkers: Walker[] = Array.from({ length: total }, (_, i) => ({
     key: `extra-${i}`,
     kind: COSTUME_KINDS[(i * 3) % COSTUME_KINDS.length],
   }))
-  // 방명록 하객은 무리 사이사이에 고르게 끼운다 (옷은 방명록 목록과 같은 id % 7)
-  guests.forEach((g, j) => {
-    const at = Math.floor((j * total) / guests.length)
-    walkers[at] = { key: `guest-${g.id}`, kind: COSTUME_KINDS[g.id % COSTUME_KINDS.length], guest: g }
+  // 방명록 하객은 무리 사이사이에 고르게 끼운다
+  others.forEach((g, j) => {
+    walkers[Math.floor((j * total) / others.length)] = walkerOf(g)
   })
+  if (star) walkers.push(walkerOf(star, true))
   return walkers
 }
 
 /**
- * 와글와글 하객 입장 → 신랑 신부 입장 → 하트 팡팡 → 게임·방명록 버튼.
+ * 와글와글 하객 입장 → 신랑 신부 입장 → 하트 팡팡. 문에는 게임으로 가는 '결혼식장 들어가기' 버튼.
  * 방명록 글 하나가 동물 옷 하객 한 명이다 (옷은 방명록 목록과 같은 id % 7).
+ * inline: 방명록에 글을 쓴 직후 폼 아래에서 틀 때 (끝 버튼을 줄인다)
  */
-export function EntranceScene({ guests }: { guests: Guest[] }) {
+export function EntranceScene({ guests, newId, inline = false }: { guests: Guest[]; newId?: number; inline?: boolean }) {
   const [run, setRun] = useState(0) // 다시 보기: key 를 바꿔 애니메이션을 처음부터
-  const walkers = crowd(guests)
+  const walkers = crowd(guests, newId)
   const coupleAt = walkers.length * GAP + 1.6
   const endAt = coupleAt + 5.4
 
@@ -49,7 +60,7 @@ export function EntranceScene({ guests }: { guests: Guest[] }) {
       >
         <Hall />
 
-        {walkers.map(({ key, kind, guest: g }, i) => {
+        {walkers.map(({ key, kind, guest: g, star }, i) => {
           const fromLeft = i % 2 === 0
           const lane = (i * 37) % 5 // 다섯 줄로 나눠 걷기
           const style = {
@@ -57,17 +68,22 @@ export function EntranceScene({ guests }: { guests: Guest[] }) {
             "--walk": `${WALK}s`,
             "--x0": fromLeft ? "-18%" : "104%",
             "--y0": `${60 + lane * 6}%`,
-            "--x1": `${46 + ((i * 13) % 9) - 4}%`,
+            "--x1": star ? "50%" : `${46 + ((i * 13) % 9) - 4}%`,
             "--y1": "38%",
             "--bob": `${0.32 + (i % 4) * 0.04}s`,
           } as React.CSSProperties
           return (
             <div key={key} className="walker absolute" style={style} aria-hidden>
               <div className="walker-bob relative">
-                <CostumeKid kind={kind} size={g ? 54 : 46} />
+                <CostumeKid kind={kind} size={star ? 66 : g ? 54 : 46} />
                 {g && (
-                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full bg-white/90 px-1.5 font-heading text-[11px] whitespace-nowrap text-ink-text">
-                    {g.nickname}
+                  <span
+                    className={cn(
+                      "absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full px-1.5 font-heading whitespace-nowrap",
+                      star ? "bg-ink-pink text-[13px] text-white" : "bg-white/90 text-[11px] text-ink-text"
+                    )}
+                  >
+                    {star ? `♥ ${g.nickname}` : g.nickname}
                   </span>
                 )}
                 {g && (
@@ -91,6 +107,14 @@ export function EntranceScene({ guests }: { guests: Guest[] }) {
         </p>
         <Hearts />
 
+        {/* 문에 단 버튼: 누르면 게임(public/game, pygbag)에서 결혼식이 이어진다 */}
+        <a
+          href="/game/index.html"
+          className="door-btn print-btn absolute top-[30%] left-1/2 z-20 inline-flex h-10 -translate-x-1/2 -translate-y-1/2 items-center bg-white px-4 font-heading text-[15px] whitespace-nowrap text-ink-pink"
+        >
+          결혼식장 들어가기 ▶
+        </a>
+
         <p className="sr-only">
           방명록에 축하를 남긴 하객 {guests.length}명이 동물 옷을 입고 식장으로 들어간 뒤, 곰 옷 신랑과 토끼 옷 신부가
           손을 잡고 입장합니다.
@@ -99,14 +123,12 @@ export function EntranceScene({ guests }: { guests: Guest[] }) {
 
       <div className="entrance-end flex flex-col items-center gap-3" style={{ "--end-at": `${endAt}s` } as React.CSSProperties} key={`end-${run}`}>
         <p className="font-heading text-xl text-ink-pink">축하해 주셔서 고마워요 ♥</p>
-        <div className="flex flex-wrap justify-center gap-3">
-          <a href="/game/index.html" className="print-btn inline-flex h-12 items-center bg-ink-pink px-6 font-heading text-lg text-white">
-            게임으로 결혼식 보기
-          </a>
+        <p className="text-sm text-muted-foreground">문의 &lsquo;결혼식장 들어가기&rsquo;를 누르면 게임에서 결혼식이 이어져요</p>
+        {!inline && (
           <Link href="/" className="print-btn inline-flex h-12 items-center bg-card px-6 font-heading text-lg">
             방명록 쓰기
           </Link>
-        </div>
+        )}
         <button
           type="button"
           onClick={() => setRun((r) => r + 1)}
