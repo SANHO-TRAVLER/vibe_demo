@@ -16,11 +16,18 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
   2. 7개를 다 모으면 하트 낙하산을 펴고 결혼식장으로 내려갑니다.
   3. 결혼식: 예복 갈아입기 → 편지 읽기 → 반지 교환 → 신부의 축가
      → 키스와 하트 축포 → HAPPILY EVER AFTER와 부케 던지기
+
+게시판 연동
+  DemoWeb 게시판(DemoWeb/data/db.json)의 글 하나마다 하객 한 명이 정해져,
+  결혼식장에서 그 글 제목을 말풍선으로 띄웁니다. 식 도중 새 글이 올라오면
+  해당 하객이 폴짝 뛰며 NEW 말풍선을 띄웁니다. 웹 서버가 꺼져 있어도 파일만 있으면 됩니다.
 """
+import json
 import math
 import random
 import sys
 from array import array
+from pathlib import Path
 
 import pygame
 
@@ -31,6 +38,10 @@ SR = 22050                 # 효과음 샘플링 레이트
 SCROLL = 1.4               # 하늘 장면 지면 스크롤 속도
 FLOOR = 520                # 결혼식장 바닥(발) 높이
 OFFICIANT_CHANCE = 0.12    # 주례 선생님이 부케를 받을 확률 (이스터에그)
+BOARD_DB = Path(__file__).resolve().parent / "DemoWeb" / "data" / "db.json"
+BOARD_POLL = 120           # 게시판 파일을 다시 확인하는 간격(프레임)
+# 글 번호 → 하객 자리. 연달아 쓴 글이 앞뒤 줄로 고루 퍼지도록 섞어 둔 순서
+SEAT_ORDER = [4, 12, 1, 9, 7, 14, 2, 10, 5, 13, 0, 8, 6, 15, 3, 11]
 
 ITEM_KINDS = ["heart", "letter", "ring", "tux", "dress", "guitar", "bouquet"]
 ITEM_NAMES = {"heart": "하트", "letter": "편지", "ring": "반지",
@@ -1097,11 +1108,14 @@ class Guest:
         self.phase = random.uniform(0, math.tau)
         self.speed = random.uniform(0.45, 0.6)
         self.holding = False    # 부케를 받았는지
+        self.hop = 0            # 새 글을 올리면 폴짝 (남은 프레임)
 
     def draw(self, s, t, clapping, groove):
         k = self.k
         x = self.x + (math.sin(t * 0.12 + self.phase) * 3 * k if groove else 0)
         y = self.y - (abs(math.sin(t * 0.2)) * 6 * k if self.holding else 0)
+        if self.hop:
+            y -= abs(math.sin(self.hop / 30 * math.pi * 3)) * 10 * k
         pygame.draw.ellipse(s, self.shirt, (x - 24 * k, y + 8 * k, 48 * k, 40 * k))
         if self.holding:   # 부케를 머리 위로 번쩍!
             for side in (-1, 1):
@@ -1161,8 +1175,7 @@ class Note:
             pygame.draw.line(s, self.color, (x + 17, y - 2), (x + 17, y - 20), 2)
             pygame.draw.line(s, self.color, (x + 3, y - 18), (x + 17, y - 20), 3)
         else:
-            pygame.draw.line(s, self.color, (x + 3, y - 1
-                                             8), (x + 9, y - 12), 2)
+            pygame.draw.line(s, self.color, (x + 3, y - 18), (x + 9, y - 12), 2)
 
 
 class MiniHeart:
@@ -1196,6 +1209,93 @@ class MiniHeart:
         draw_heart(s, self.color, self.x, self.y, self.size, sx)
 
 
+class Board:
+    """DemoWeb 게시판 글 목록을 파일에서 읽는다 (파일이 바뀌었을 때만 다시 읽음)"""
+    def __init__(self, path=BOARD_DB):
+        self.path = path
+        self.mtime = None
+        self.posts = {}         # 글 번호 → (제목, 작성자)
+
+    def poll(self):
+        """새로 생긴 글 번호 목록을 돌려준다. 파일이 없거나 읽다 실패하면 이전 상태를 유지한다."""
+        try:
+            mtime = self.path.stat().st_mtime
+            if mtime == self.mtime:
+                return []
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            posts = {int(p["id"]): (str(p["title"]), str(p["author"])) for p in data["posts"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+        first = self.mtime is None
+        self.mtime = mtime
+        new = [] if first else sorted(set(posts) - set(self.posts))
+        self.posts = posts
+        return new
+
+    @staticmethod
+    def seat(post_id):
+        return SEAT_ORDER[(post_id - 1) % len(SEAT_ORDER)]
+
+
+def clip_text(font, text, width):
+    """글자 폭이 width를 넘으면 잘라서 … 를 붙인다"""
+    if font.size(text)[0] <= width:
+        return text
+    while text and font.size(text + "…")[0] > width:
+        text = text[:-1]
+    return text + "…"
+
+
+class SpeechBubble:
+    """하객 머리 위에 통 튀어나오는 게시글 말풍선"""
+    POP, LIFE, FADE = 14, 170, 24
+
+    def __init__(self, game, guest, post_id, title, author, new=False):
+        self.guest, self.post_id, self.new = guest, post_id, new
+        self.life = self.LIFE + (90 if new else 0)
+        self.t = 0
+        title_img = game.small_font.render(clip_text(game.small_font, title, 116), True, (90, 40, 60))
+        author_img = game.tiny_font.render(clip_text(game.tiny_font, f"- {author}", 116), True, (170, 110, 130))
+        w = max(title_img.get_width(), author_img.get_width()) + 18
+        h = title_img.get_height() + author_img.get_height() + 10
+        top = 8 if new else 0   # NEW 딱지 자리
+        self.img = pygame.Surface((w + (8 if new else 0), top + h + 10), pygame.SRCALPHA)
+        fill, edge = ((255, 248, 214), (240, 160, 60)) if new else ((255, 255, 255), (230, 150, 180))
+        body = pygame.Rect(0, top, w, h)
+        pygame.draw.rect(self.img, fill, body, border_radius=10)
+        pygame.draw.rect(self.img, edge, body, 2, border_radius=10)
+        tail = [(w / 2 - 7, top + h - 2), (w / 2 + 7, top + h - 2), (w / 2, top + h + 9)]
+        pygame.draw.polygon(self.img, fill, tail)
+        pygame.draw.lines(self.img, edge, False, [tail[0], tail[2], tail[1]], 2)
+        self.img.blit(title_img, (9, top + 5))
+        self.img.blit(author_img, (9, top + 5 + title_img.get_height()))
+        if new:
+            badge = game.tiny_font.render("NEW", True, WHITE)
+            br = badge.get_rect(topright=(self.img.get_width(), 0)).inflate(8, 2).clamp(self.img.get_rect())
+            pygame.draw.rect(self.img, (240, 90, 120), br, border_radius=6)
+            self.img.blit(badge, badge.get_rect(center=br.center))
+
+    @property
+    def done(self):
+        return self.t >= self.life
+
+    def update(self):
+        self.t += 1
+
+    def draw(self, s, lift):
+        g = self.guest
+        k = min(1.0, self.t / self.POP)    # 0 → 1.15 → 1 로 통 튀어나오기
+        scale = 1.15 * math.sin(k / 0.7 * math.pi / 2) if k < 0.7 else lerp(1.15, 1.0, (k - 0.7) / 0.3)
+        img = self.img
+        if scale != 1.0:
+            img = pygame.transform.smoothscale(img, (max(1, int(img.get_width() * scale)),
+                                                     max(1, int(img.get_height() * scale))))
+        img.set_alpha(int(255 * min(1.0, (self.life - self.t) / self.FADE)))
+        rect = img.get_rect(midbottom=(g.x, g.y - 16 * g.k - lift))
+        rect.x = max(4, min(W - 4 - rect.w, rect.x))
+        s.blit(img, rect)
+
+
 class Ceremony:
     LETTER_LINES = ["사랑하는 당신에게,",
                     "하늘에서 손을 맞잡았던 그날처럼",
@@ -1227,6 +1327,11 @@ class Ceremony:
         self.arch = None
         self.toss = None            # 날아가는 부케 (x, y, 회전각, 크기)
         self.fade_in = 1.0
+        self.bubbles = []
+        game.board.poll()
+        # 처음엔 글을 번호순으로 하나씩 두두둥 띄운다 (자리가 겹치면 최근 글)
+        self.bubble_queue = sorted({Board.seat(i): i for i in sorted(game.board.posts)}.values())
+        self.bubble_wait = 70
         self.script = self.run_script()
         game.audio.play_music("bgm_hall")
 
@@ -1593,6 +1698,42 @@ class Ceremony:
         self.notes = [n for n in self.notes if n.life > 0]
         self.hearts = [h for h in self.hearts if h.y < H + 30]
         self.effects = [e for e in self.effects if e.life > 0]
+        self.update_bubbles()
+
+    # ----- 게시판 말풍선 -----
+    def pop_bubble(self, post_id, new=False):
+        post = self.g.board.posts.get(post_id)
+        if not post:
+            return
+        guest = self.guests[Board.seat(post_id)]
+        self.bubbles = [b for b in self.bubbles if b.guest is not guest]
+        self.bubbles.append(SpeechBubble(self.g, guest, post_id, *post, new=new))
+        if new:
+            guest.hop = 30
+            self.g.audio.play("pop")
+
+    def update_bubbles(self):
+        board = self.g.board
+        if self.t % BOARD_POLL == 0:
+            for post_id in board.poll():
+                self.pop_bubble(post_id, new=True)
+            # 지워진 글의 말풍선은 거둔다
+            self.bubbles = [b for b in self.bubbles if b.post_id in board.posts]
+        for guest in self.guests:
+            if guest.hop:
+                guest.hop -= 1
+        if self.bubble_wait:
+            self.bubble_wait -= 1
+        elif self.bubble_queue:
+            self.pop_bubble(self.bubble_queue.pop(0))
+            self.bubble_wait = 12
+        elif board.posts and len(self.bubbles) < 3:
+            # 한 바퀴 돈 뒤에는 가끔씩 아무 하객이나 다시 한마디
+            self.pop_bubble(random.choice(list(board.posts)))
+            self.bubble_wait = random.randint(60, 140)
+        for b in self.bubbles:
+            b.update()
+        self.bubbles = [b for b in self.bubbles if not b.done]
 
     # ----- 그리기 -----
     def draw(self, s):
@@ -1649,6 +1790,11 @@ class Ceremony:
 
         for h in self.hearts:
             h.draw(s)
+        # 앞줄 말풍선이 위에 오게. 앞줄 홀수 자리는 조금 더 높이 띄워 덜 겹치게
+        # (뒷줄은 더 올리면 신랑 신부 발을 가린다)
+        for b in sorted(self.bubbles, key=lambda b: (b.guest.y, b.new)):
+            i = self.guests.index(b.guest)
+            b.draw(s, 34 if i >= 9 and i % 2 else 0)
 
         if self.toss:
             x, y, angle, k = self.toss
@@ -1776,6 +1922,7 @@ class Game:
         self.ceremony = None
         self.tick = 0
         self.last_catcher = None   # 지난번에 부케를 받은 하객
+        self.board = Board()
 
     def text(self, msg, font, color, center, alpha=255, box=False):
         img = font.render(msg, True, color)
