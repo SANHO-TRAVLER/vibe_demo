@@ -4,9 +4,17 @@
 결혼식장으로 내려가 식을 올리는 평화로운 종스크롤 게임입니다.
 pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅니다.
 
+화면은 몽글몽글한 동화책 리소 인쇄 느낌입니다. 매 프레임 그린 그림을
+핑크·옐로·하늘·초록 네 가지 잉크로 나눠, 단색 면은 꽉 차게, 그러데이션은 둥근
+망점으로 찍고, 판마다 살짝 어긋나게(misregistration) 겹친 뒤 종이 결을 얹습니다
+(numpy 필요, 없으면 원래 색). 하객은 동물 옷을 입은 아이들이고,
+신랑은 곰 옷, 신부는 토끼 옷, 주례 선생님은 양 옷을 입었습니다.
+글꼴은 fonts/ 의 주아(Jua, SIL OFL)를 쓰고, 없으면 시스템 글꼴을 씁니다.
+
 조작
   방향키 / WASD : 이동
   M             : 소리 켜기/끄기
+  R             : 리소 인쇄 효과 켜기/끄기
   Enter         : 시작 / 엔딩 후 처음으로
   ESC           : 종료
 
@@ -18,8 +26,8 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
      → 키스와 하트 축포 → HAPPILY EVER AFTER와 부케 던지기
 
 게시판 연동
-  DemoWeb 게시판(웹 서버의 /api/posts)의 글 하나마다 하객 한 명이 정해져,
-  결혼식장에서 그 글 제목을 말풍선으로 띄웁니다. 식 도중 새 글이 올라오면
+  DemoWeb 축하 방명록(웹 서버의 /api/posts)의 글 하나마다 하객 한 명이 정해져,
+  결혼식장에서 그 축하 한마디를 말풍선으로 띄웁니다. 식 도중 새 글이 올라오면
   해당 하객이 폴짝 뛰며 NEW 말풍선을 띄웁니다. 게시판 웹 서버가 켜져 있어야 하며,
   꺼져 있으면 말풍선 없이 그대로 진행됩니다.
 """
@@ -32,8 +40,14 @@ import threading
 import time
 import urllib.request
 from array import array
+from pathlib import Path
 
 import pygame
+
+try:
+    import numpy as np      # 리소 인쇄 효과용 (없으면 효과 없이 실행)
+except ImportError:
+    np = None
 
 # ===== 기본 설정 =====
 W, H = 480, 720
@@ -42,6 +56,21 @@ SR = 22050                 # 효과음 샘플링 레이트
 SCROLL = 1.4               # 하늘 장면 지면 스크롤 속도
 FLOOR = 520                # 결혼식장 바닥(발) 높이
 OFFICIANT_CHANCE = 0.12    # 주례 선생님이 부케를 받을 확률 (이스터에그)
+FONT_DIR = Path(__file__).resolve().parent / "fonts"
+
+# ===== 리소 인쇄 (몽글몽글 동화책) =====
+RISO_PAPER = (249, 241, 230)           # 크림색 종이
+RISO_SPECK = (232, 216, 198)           # 종이 섬유 얼룩
+# 잉크: (이름, 색, 판 어긋남 dx, dy). DemoWeb 방명록도 같은 네 잉크를 쓴다.
+# 겹쳐 찍히면 곱해져서 핑크+옐로=코랄, 핑크+하늘=보라, 하늘+초록=청록 … 이 된다.
+RISO_INKS = [("pink", (255, 138, 196), 2, 1),
+             ("yellow", (255, 222, 84), -2, 2),
+             ("blue", (126, 180, 234), 0, 0),
+             ("green", (86, 180, 118), 1, -1)]
+INK = {name: color for name, color, _, _ in RISO_INKS}
+INK_TEXT = (46, 84, 112)               # 글씨·선: 검정 대신 부드러운 남색 (GANMO 제목 색)
+RISO_SCREEN = 6                        # 망점 간격(px). 45도로 기운 둥근 점
+RISO_SPREAD = 40                       # 망점 세기. 작을수록 단색 면이 꽉 차고 그러데이션만 점이 된다
 # DemoWeb 게시판 글 목록 API (다른 주소면 환경 변수 DEMOWEB_URL 로 바꾼다)
 BOARD_URL = os.environ.get("DEMOWEB_URL", "http://localhost:3000").rstrip("/") + "/api/posts"
 BOARD_POLL_SEC = 2.0       # 웹 서버에서 글 목록을 다시 받아 오는 간격(초)
@@ -68,14 +97,7 @@ ROAD = (150, 144, 136)
 WHITE = (255, 255, 255)
 YELLOW = (255, 225, 90)
 PINK = (255, 120, 170)
-SKIN = (255, 222, 196)
-SUIT_YELLOW = (255, 210, 50)       # 개나리, 병아리 같은 노랑
-SUIT_STRIPE = (245, 150, 40)
-GROOM_SUIT = SUIT_YELLOW
-BRIDE_SUIT = SUIT_YELLOW
-GROOM_HELMET = (40, 60, 110)
-BRIDE_HELMET = (255, 245, 250)
-HAIR = (96, 62, 38)
+SUIT_YELLOW = (255, 210, 50)       # 신랑 신부 점프슈트: 개나리, 병아리 같은 노랑
 HEART_PINKS = [(255, 105, 150), (255, 150, 185), (240, 60, 100),
                (255, 185, 205), (230, 40, 80), (255, 90, 120)]
 
@@ -97,6 +119,11 @@ def darker(c, k=0.78):
 
 
 def load_font(size, bold=False):
+    """둥글고 통통한 주아 글꼴(fonts/Jua-Regular.ttf). 원래 굵어서 bold 는 따로 없다.
+    글꼴 파일이 없으면 시스템 한글 글꼴을 쓴다."""
+    path = FONT_DIR / "Jua-Regular.ttf"
+    if path.exists():
+        return pygame.font.Font(str(path), size)
     for name in ("malgungothic", "applegothic", "nanumgothic", "notosanscjkkr"):
         path = pygame.font.match_font(name, bold=bold)
         if path:
@@ -642,37 +669,44 @@ class TextPop:
 
 
 def draw_couple_topdown(target, x, y, tick, scale=1.0, angle=0.0):
-    """위에서 내려다본, 손을 잡고 스카이다이빙하는 신랑(왼쪽)과 신부(오른쪽)"""
+    """위에서 내려다본, 손을 잡고 스카이다이빙하는 신랑(왼쪽, 곰 옷)과 신부(오른쪽, 토끼 옷).
+    식장과 같은 통통한 동물 옷 아이들: 노란 점프슈트 + 동물 모자"""
     S = pygame.Surface((200, 150), pygame.SRCALPHA)
-    cx, cy = 100, 70
+    cx, cy = 100, 72
     fl = math.sin(tick * 0.25) * 3
-    for side, suit, helmet in ((-1, GROOM_SUIT, GROOM_HELMET), (1, BRIDE_SUIT, BRIDE_HELMET)):
+    flap = math.sin(tick * 0.4) * 3     # 바람에 펄럭이는 토끼 귀
+    for side, kind in ((-1, "bear"), (1, "bunny")):
+        p = CostumePainter(kind, 1.1)
         px = cx + side * 32
-        # 다리 (박스 자세로 벌려 구부림)
+        suit, line = SUIT_YELLOW, _CORAL
+        # 짧고 통통한 다리 (벌린 자세)
         for leg in (-1, 1):
-            hip = (px + leg * 6, cy + 16)
-            knee = (px + leg * 20, cy + 34 + fl * 0.5 * leg)
-            foot = (px + leg * 15, cy + 52 + fl)
-            pygame.draw.lines(S, suit, False, [hip, knee, foot], 9)
-            pygame.draw.circle(S, (50, 45, 45), (int(foot[0]), int(foot[1])), 5)
-        # 바깥 팔 (위로 구부림)
-        sh = (px + side * 10, cy - 10)
-        elbow = (px + side * 30, cy - 12 + fl * 0.5)
-        hand = (px + side * 28, cy - 34)
-        pygame.draw.lines(S, suit, False, [sh, elbow, hand], 8)
-        pygame.draw.circle(S, SKIN, (int(hand[0]), int(hand[1])), 5)
+            hip = (px + leg * 7, cy + 14)
+            foot = (px + leg * 17, cy + 38 + fl * (0.5 if leg > 0 else 1))
+            pygame.draw.line(S, line, (hip[0] + 1, hip[1] + 1), (foot[0] + 1, foot[1] + 1), 13)
+            pygame.draw.line(S, suit, hip, foot, 10)
+            p.blob(S, "circle", foot, 6, fill=line, line=darker(line, 0.8))
+        # 바깥 팔 (위로 만세)
+        sh = (px + side * 12, cy - 6)
+        hand = (px + side * 30, cy - 28 + fl * 0.5)
+        pygame.draw.line(S, line, (sh[0] + 1, sh[1] + 1), (hand[0] + 1, hand[1] + 1), 12)
+        pygame.draw.line(S, suit, sh, hand, 9)
+        p.blob(S, "circle", hand, 6, fill=suit, line=line)
         # 안쪽 팔 (가운데에서 손잡기)
-        pygame.draw.line(S, suit, (px - side * 10, cy - 10), (cx + side * 4, cy - 4), 8)
-        # 몸통
-        pygame.draw.ellipse(S, suit, (px - 14, cy - 22, 28, 46))
-        pygame.draw.line(S, SUIT_STRIPE, (px, cy - 18), (px, cy + 20), 3)
-        # 머리 (헬멧)
-        if side == 1:   # 신부의 펄럭이는 머리카락
-            wig = math.sin(tick * 0.4) * 4
-            pygame.draw.polygon(S, HAIR, [(px + 4, cy - 24), (px + 22 + wig, cy - 30), (px + 18 + wig, cy - 20)])
-        pygame.draw.circle(S, helmet, (px, cy - 30), 12)
-        pygame.draw.arc(S, darker(helmet, 0.7), (px - 12, cy - 42, 24, 24), 0.3, 2.8, 3)
-    pygame.draw.circle(S, SKIN, (cx, cy - 4), 7)   # 맞잡은 손
+        pygame.draw.line(S, suit, (px - side * 10, cy - 6), (cx + side * 4, cy - 2), 9)
+        # 통통한 몸통 + 지퍼
+        p.blob(S, "rrect", (px - 17, cy - 20, 34, 42), 16, fill=suit, line=line)
+        pygame.draw.line(S, line, (px, cy - 16), (px, cy + 16), 2)
+        # 머리: 동물 모자 (위에서 보니 귀와 모자 꼭대기만)
+        hx, hy = px, cy - 32
+        if kind == "bunny":
+            for ear in (-1, 1):
+                p.blob(S, "ellipse", (hx + ear * 9 - 5 + flap * ear * 0.5, hy - 30 + abs(flap), 10, 26))
+        else:
+            p.draw_ears(S, hx, hy, 14)
+        p.blob(S, "circle", (hx, hy), 14)
+        pygame.draw.circle(S, p.face, (hx, hy + 6), 6)     # 아래로 살짝 보이는 얼굴
+    p.blob(S, "circle", (cx, cy - 2), 7, fill=SUIT_YELLOW, line=_CORAL)   # 맞잡은 손
     if scale != 1.0 or angle:
         S = pygame.transform.rotozoom(S, angle, scale)
     target.blit(S, S.get_rect(center=(int(x), int(y))))
@@ -963,7 +997,105 @@ class SkyPhase:
 # ===================================================================
 # 결혼식장 장면 (옆에서 본 모습)
 # ===================================================================
+# 동물 옷 (UKI 그림처럼 통통한 몸 + 동물 모자 + 다른 잉크로 비껴 그은 선)
+# 이름: (옷 색, 선 색, 얼굴 색). 색은 리소 잉크와 그 겹친 색에서 고른다.
+_PURPLE, _CORAL, _TEAL = (123, 92, 162), (249, 113, 63), (41, 120, 98)
+_PINK, _YELLOW, _BLUE, _GREEN = INK["pink"], INK["yellow"], INK["blue"], INK["green"]
+_FLUFF = (255, 252, 246)
+COSTUMES = {
+    "bunny": (_PINK, _PURPLE, _YELLOW),
+    "chick": (_YELLOW, _CORAL, _PINK),
+    "frog": (_GREEN, _TEAL, _YELLOW),
+    "cat": (_BLUE, _PURPLE, _PINK),
+    "bear": (_CORAL, _PURPLE, _YELLOW),
+    "lion": (_YELLOW, _CORAL, _PINK),
+    "sheep": (_FLUFF, _PINK, _PINK),
+}
+
+
+class CostumePainter:
+    """동물 옷 그리기 도구 (하객·신랑 신부·주례가 함께 쓴다)"""
+    def __init__(self, costume, k=1.0):
+        self.costume, self.k = costume, k
+        self.fill, self.line, self.face = COSTUMES[costume]
+
+    def blob(self, s, kind, geom, r=None, fill=None, line=None):
+        """색을 채우고, 선 판을 1px 비껴 찍는다 (리소 판 어긋남 느낌).
+        kind: "ellipse"(사각형 안 타원), "circle"(중심, 반지름), "rrect"(둥근 사각형, r=모서리)"""
+        fill, line = fill or self.fill, line or self.line
+        lw = max(1, round(2 * self.k))
+        if kind == "circle":
+            c = (int(geom[0]), int(geom[1]))
+            pygame.draw.circle(s, fill, c, int(r))
+            pygame.draw.circle(s, line, (c[0] + 1, c[1] + 1), int(r), lw)
+            return
+        rect = pygame.Rect(geom)
+        if kind == "ellipse":
+            pygame.draw.ellipse(s, fill, rect)
+            pygame.draw.ellipse(s, line, rect.move(1, 1), lw)
+        else:
+            pygame.draw.rect(s, fill, rect, border_radius=int(r))
+            pygame.draw.rect(s, line, rect.move(1, 1), lw, border_radius=int(r))
+
+    def draw_ears(self, s, x, y, r):
+        k, kind = self.k, self.costume
+        if kind == "bunny":
+            for side in (-1, 1):
+                self.blob(s, "ellipse", (x + side * 0.55 * r - 0.3 * r, y - 2.15 * r, 0.6 * r, 1.6 * r))
+        elif kind == "bear":
+            for side in (-1, 1):
+                self.blob(s, "circle", (x + side * 0.78 * r, y - 0.72 * r), 0.42 * r)
+        elif kind == "cat":
+            for side in (-1, 1):
+                pts = [(x + side * 0.25 * r, y - 0.8 * r), (x + side * 0.95 * r, y - 1.35 * r), (x + side * 0.95 * r, y - 0.2 * r)]
+                pygame.draw.polygon(s, self.fill, pts)
+                pygame.draw.lines(s, self.line, False, [(px + 1, py + 1) for px, py in pts], max(1, round(2 * k)))
+        elif kind == "frog":
+            for side in (-1, 1):
+                self.blob(s, "circle", (x + side * 0.5 * r, y - 0.85 * r), 0.42 * r)
+        elif kind == "chick":
+            pygame.draw.ellipse(s, self.fill, (x - 0.15 * r, y - 1.5 * r, 0.35 * r, 0.7 * r))
+            pygame.draw.ellipse(s, self.fill, (x + 0.05 * r, y - 1.35 * r, 0.35 * r, 0.6 * r))
+        elif kind == "lion":
+            for i in range(12):     # 갈기
+                a = i * math.tau / 12
+                pygame.draw.circle(s, _CORAL, (int(x + math.cos(a) * 1.05 * r), int(y + math.sin(a) * 1.05 * r)), int(0.42 * r))
+        elif kind == "sheep":
+            for i in range(10):     # 복슬복슬 털
+                a = i * math.tau / 10
+                self.blob(s, "circle", (x + math.cos(a) * 0.95 * r, y + math.sin(a) * 0.95 * r), 0.36 * r)
+            for side in (-1, 1):    # 노란 뿔
+                pygame.draw.circle(s, _YELLOW, (int(x + side * 1.15 * r), int(y + 0.1 * r)), int(0.4 * r))
+                pygame.draw.circle(s, _CORAL, (int(x + side * 1.15 * r) + 1, int(y + 0.1 * r) + 1), int(0.2 * r), 1)
+
+    def draw_face(self, s, x, y, r, turn=0.0, closed=False, blush=False):
+        """동그란 얼굴. turn(-1~1)만큼 얼굴이 옆으로 돌아간다(옆모습 캐릭터용)"""
+        k = self.k
+        fx, fy = x + turn * 0.18 * r, y + 0.12 * r
+        pygame.draw.circle(s, self.face, (int(fx), int(fy)), int(0.66 * r))
+        cheek = _CORAL if self.face != _PINK else _PURPLE
+        for side in (-1, 1):
+            ex = fx + side * 0.24 * r + turn * 0.08 * r
+            ey = fy - 0.05 * r
+            if closed:      # 감은 눈: 웃는 반달
+                pygame.draw.arc(s, INK_TEXT, (ex - 0.1 * r, ey - 0.06 * r, 0.2 * r, 0.16 * r), 0, math.pi, max(1, round(1.4 * k)))
+            else:
+                pygame.draw.circle(s, INK_TEXT, (int(ex), int(ey)), max(1, round(1.6 * k)))
+            pygame.draw.circle(s, cheek, (int(fx + side * 0.42 * r + turn * 0.05 * r), int(fy + 0.2 * r)),
+                               max(1, round((2.6 if blush else 1.8) * k)))
+        mx = fx + turn * 0.06 * r
+        pygame.draw.line(s, INK_TEXT, (mx - 0.08 * r, fy + 0.3 * r), (mx + 0.08 * r, fy + 0.3 * r), max(1, round(1.2 * k)))
+        if self.costume == "chick":     # 부리 모자
+            pygame.draw.polygon(s, _CORAL, [(x - 0.2 * r, y - 0.7 * r), (x + 0.2 * r, y - 0.7 * r), (x, y - 0.45 * r)])
+
+
 class Person:
+    """식장의 신랑(곰 옷)·신부(토끼 옷)·주례(양 옷). 하객처럼 머리가 크고 몸이 통통한 동물 옷 아이들.
+    식 진행(run_script)이 쓰는 좌표(hands, lean, bob, bouquet_at …)는 예전 그대로 받는다."""
+    COSTUME = {"groom": "bear", "bride": "bunny", "officiant": "sheep"}
+    TUX = _BLUE                     # 신랑 예복: 하늘 잉크 한 판 (어중간한 남색은 망점으로 풀려 지저분해진다)
+    HEAD_R = 19
+
     def __init__(self, role, x, facing):
         self.role = role            # "groom", "bride", "officiant"
         self.x, self.y = x, FLOOR
@@ -980,113 +1112,99 @@ class Person:
         self.bouquet_at = None      # 부케 위치를 직접 지정할 때
         self.bob = 0.0
         self.blush = False          # 쑥스러운 볼터치와 땀방울
+        self.paint = CostumePainter(self.COSTUME[role], 1.25)
 
-    def arm(self, s, shoulder, hand, color):
-        pygame.draw.line(s, color, shoulder, hand, 7)
-        pygame.draw.circle(s, SKIN, (int(hand[0]), int(hand[1])), 4)
+    def suit(self):
+        """(옷 색, 선 색). 스카이다이빙 땐 노란 점프슈트"""
+        if self.outfit != "formal":
+            return SUIT_YELLOW, _CORAL
+        return {"groom": (self.TUX, _PURPLE), "bride": (_FLUFF, _PINK), "officiant": (_GREEN, _TEAL)}[self.role]
+
+    def arm(self, s, shoulder, hand, color, line):
+        pygame.draw.line(s, line, (shoulder[0] + 1, shoulder[1] + 1), (hand[0] + 1, hand[1] + 1), 12)
+        pygame.draw.line(s, color, shoulder, hand, 9)
+        self.paint.blob(s, "circle", hand, 6, fill=color, line=line)     # 동그란 손(앞발)
 
     def draw(self, s):
         f, x = self.facing, self.x
         F = self.y + self.bob
+        p = self.paint
         woman = self.role == "bride"
         formal = self.outfit == "formal"
-        d = 7 if woman else 0
-        sh_y = F - 96 + d
-        hip_y = F - 52
-        hx, hy = x + f * self.lean * 7, F - 113 + d + self.lean * 3
+        dress = woman and formal
+        top, line = self.suit()
+        r = self.HEAD_R
+        hx, hy = x + f * self.lean * 7, F - 99 + self.lean * 3
+        sh_back, sh_front = (x - f * 7, F - 70), (x + f * 7, F - 70)
 
-        if not formal:
-            top = legs = BRIDE_SUIT if woman else GROOM_SUIT
-        elif self.role == "groom":
-            top, legs = (30, 30, 36), (26, 26, 32)
-        elif self.role == "officiant":
-            top, legs = (96, 96, 112), (80, 80, 92)
-        else:
-            top, legs = (252, 252, 255), None
-        arm_col = SKIN if (woman and formal) else top
-
-        # 면사포 (몸 뒤쪽)
-        if woman and formal:
-            pygame.draw.polygon(s, (238, 238, 248), [(hx - f * 4, hy - 12), (hx - f * 18, hy - 4),
-                                                     (x - f * 42, F - 26), (x - f * 12, F - 40)])
+        # 면사포 (몸 뒤쪽): 머리에서 바닥까지 몽글하게
+        if dress:
+            veil = [(hx - f * 4, hy - 14), (hx - f * 22, hy - 4), (x - f * 40, F - 6), (x - f * 12, F - 30)]
+            pygame.draw.polygon(s, (250, 246, 252), veil)
+            pygame.draw.lines(s, _PINK, False, [(vx + 1, vy + 1) for vx, vy in veil[:3]], 2)
         # 뒤쪽 팔
-        self.arm(s, (x - f * 3, sh_y + 6), self.hands[0] or (x - f * 5, F - 50), darker(arm_col))
-        # 다리
-        if not (woman and formal):
-            sw = math.sin(self.walk) * 0.45 if self.walking else 0.0
-            for a, col in ((-sw, darker(legs)), (sw, legs)):
-                fx, fy = x + math.sin(a) * 50, hip_y + math.cos(a) * 50
-                pygame.draw.line(s, col, (x, hip_y), (fx, fy), 9)
-                pygame.draw.ellipse(s, (40, 34, 34), (fx - 6 + f * 3, fy - 4, 12, 7))
+        self.arm(s, sh_back, self.hands[0] or (x - f * 15, F - 46), darker(top, 0.9), line)
+        # 짧고 통통한 다리
+        if not dress:
+            sw = math.sin(self.walk) * 6 if self.walking else 0.0
+            for side, col in ((-1, darker(top, 0.9)), (1, top)):
+                lx = x + side * 8 + side * sw * f
+                p.blob(s, "rrect", (lx - 7, F - 28, 14, 26), 7, fill=col, line=line)
+                p.blob(s, "ellipse", (lx - 8 + f * 3, F - 7, 16, 9), fill=line, line=darker(line, 0.8))
         # 몸통
-        if woman and formal:
-            pygame.draw.polygon(s, SKIN, [(x - 9, sh_y), (x + 9, sh_y), (x + 9, sh_y + 10), (x - 9, sh_y + 10)])
-            pygame.draw.polygon(s, top, [(x - 10, sh_y + 9), (x + 10, sh_y + 9), (x + 8, F - 58), (x - 8, F - 58)])
+        if dress:
             sway = math.sin(self.walk) * 4 if self.walking else 0
-            skirt = [(x - 9, F - 60), (x + 9, F - 60), (x + f * 32 + sway, F), (x - f * 50 + sway, F + 2)]
-            pygame.draw.polygon(s, (252, 252, 255), skirt)
-            pygame.draw.polygon(s, (232, 210, 225), skirt, 2)
-            for i in range(9):
-                lx = lerp(x - f * 50, x + f * 32, i / 8) + sway
-                pygame.draw.circle(s, (250, 215, 230), (int(lx), int(F - 1)), 3)
-            pygame.draw.line(s, (255, 160, 195), (x - 9, F - 59), (x + 9, F - 59), 3)
+            skirt = [(x - 13, F - 64), (x + 13, F - 64), (x + f * 30 + sway, F), (x - f * 42 + sway, F + 2)]
+            pygame.draw.polygon(s, _FLUFF, skirt)
+            pygame.draw.lines(s, _PINK, True, [(sx + 1, sy + 1) for sx, sy in skirt], 2)
+            for i in range(9):      # 치맛단 레이스
+                lx = lerp(x - f * 42, x + f * 30, i / 8) + sway
+                pygame.draw.circle(s, _PINK, (int(lx), int(F - 1)), 3)
+            p.blob(s, "rrect", (x - 15, F - 80, 30, 22), 10, fill=_FLUFF, line=_PINK)    # 윗도리
+            pygame.draw.line(s, _PINK, (x - 13, F - 62), (x + 13, F - 62), 4)             # 리본 띠
+        elif self.role == "officiant" and formal:
+            p.blob(s, "rrect", (x - 21, F - 80, 42, 78), 16, fill=top, line=line)          # 긴 가운
+            for side in (-1, 1):
+                pygame.draw.line(s, _YELLOW, (x + side * 6, F - 76), (x + side * 8, F - 10), 4)
         else:
-            pygame.draw.polygon(s, top, [(x - 12, sh_y), (x + 12, sh_y), (x + 10, hip_y + 2), (x - 10, hip_y + 2)])
-            if formal:
-                pygame.draw.polygon(s, WHITE, [(x + f * 1, sh_y), (x + f * 11, sh_y), (x + f * 5, sh_y + 20)])
-                pygame.draw.polygon(s, (20, 20, 20), [(x + f * 3, sh_y + 1), (x + f * 9, sh_y + 6),
-                                                      (x + f * 9, sh_y + 1), (x + f * 3, sh_y + 6)])
-                if self.role == "groom":
-                    pygame.draw.circle(s, (255, 140, 180), (int(x - f * 4), int(sh_y + 14)), 4)
-            else:
-                pygame.draw.line(s, SUIT_STRIPE, (x + f * 4, sh_y + 2), (x + f * 3, hip_y), 2)
-        # 머리
-        if not formal:      # 스카이다이빙 헬멧
-            helmet = BRIDE_HELMET if woman else GROOM_HELMET
-            if woman:
-                pygame.draw.polygon(s, HAIR, [(hx - f * 10, hy), (hx - f * 26, hy + 12), (hx - f * 12, hy + 8)])
-            pygame.draw.circle(s, helmet, (int(hx - f * 1), int(hy - 3)), 15)
-            pygame.draw.circle(s, SKIN, (int(hx + f * 4), int(hy + 3)), 11)
-            pygame.draw.rect(s, (40, 70, 120), (hx + f * 3 - 7, hy - 13, 14, 6), border_radius=3)
-        else:
-            hair = (200, 200, 205) if self.role == "officiant" else HAIR
-            pygame.draw.circle(s, hair, (int(hx - f * 2), int(hy - 3)), 14)
-            pygame.draw.circle(s, SKIN, (int(hx + f * 2), int(hy + 1)), 12)
-            if woman:
-                pygame.draw.circle(s, hair, (int(hx - f * 12), int(hy - 7)), 7)
-                for i in range(3):
-                    pygame.draw.circle(s, (255, 230, 140), (int(hx - f * (4 - i * 4)), int(hy - 15 + abs(i - 1))), 2)
-            if self.role == "officiant":
-                pygame.draw.circle(s, (60, 60, 60), (int(hx + f * 7), int(hy - 2)), 4, 1)
-        ex, ey = hx + f * 7, hy - 1
-        if self.eyes_closed:
-            pygame.draw.line(s, (40, 30, 30), (ex - 2, ey), (ex + 2, ey), 2)
-        else:
-            pygame.draw.circle(s, (40, 30, 30), (int(ex), int(ey)), 2)
-        pygame.draw.arc(s, (190, 70, 80), (hx + f * 4 - 4, hy + 2, 8, 6), math.pi, math.tau, 2)
-        if woman or self.blush:
-            pygame.draw.circle(s, (255, 150, 160), (int(hx + f * 3), int(hy + 5)), 4 if self.blush else 3)
+            p.blob(s, "rrect", (x - 19, F - 80, 38, 56), 17, fill=top, line=line)
+            if formal:              # 신랑 예복: 흰 셔츠 V + 핑크 나비넥타이 + 꽃
+                pygame.draw.polygon(s, _FLUFF, [(x - 8, F - 79), (x + 8, F - 79), (x, F - 60)])
+                pygame.draw.polygon(s, _PINK, [(x - 7, F - 77), (x, F - 73), (x - 7, F - 69)])
+                pygame.draw.polygon(s, _PINK, [(x + 7, F - 77), (x, F - 73), (x + 7, F - 69)])
+                pygame.draw.circle(s, _YELLOW, (int(x - f * 11), int(F - 64)), 4)
+            else:                   # 점프슈트 지퍼
+                pygame.draw.line(s, line, (x + f * 3, F - 78), (x + f * 3, F - 30), 2)
+        # 머리: 동물 모자 + 동그란 얼굴
+        p.draw_ears(s, hx, hy, r)
+        p.blob(s, "circle", (hx, hy), r)
+        p.draw_face(s, hx, hy, r, turn=f * 0.8, closed=self.eyes_closed, blush=woman or self.blush)
+        if dress:                   # 꽃 머리띠
+            for i, col in enumerate((_YELLOW, _PINK, _YELLOW, _PINK, _YELLOW)):
+                a = math.pi * (1.15 + i * 0.17)
+                pygame.draw.circle(s, col, (int(hx + math.cos(a) * r * 0.92), int(hy + math.sin(a) * r * 0.92)), 3)
+        if self.role == "officiant":    # 동그란 안경
+            pygame.draw.circle(s, INK_TEXT, (int(hx + f * 7), int(hy)), 5, 1)
         if self.blush:   # 땀방울
-            dx, dy = hx - f * 12, hy - 14
-            pygame.draw.polygon(s, (120, 190, 240), [(dx, dy - 6), (dx - 3, dy), (dx + 3, dy)])
-            pygame.draw.circle(s, (120, 190, 240), (int(dx), int(dy + 1)), 3)
+            dx, dy = hx - f * 16, hy - 14
+            pygame.draw.polygon(s, _BLUE, [(dx, dy - 6), (dx - 3, dy), (dx + 3, dy)])
+            pygame.draw.circle(s, _BLUE, (int(dx), int(dy + 1)), 3)
         # 일렉기타
         if self.guitar:
-            bx, by = x + f * 8, F - 60
-            neck_end = (x + f * 50, F - 98)
-            pygame.draw.line(s, (60, 30, 30), (bx - f * 8, by - 8), (x - f * 6, sh_y + 2), 3)
-            pygame.draw.line(s, (130, 85, 45), (bx, by), neck_end, 5)
-            pygame.draw.line(s, (40, 40, 40), neck_end, (neck_end[0] + f * 8, neck_end[1] - 7), 7)
-            pygame.draw.circle(s, (225, 35, 55), (int(bx - f * 2), int(by + 5)), 14)
-            pygame.draw.circle(s, (225, 35, 55), (int(bx + f * 6), int(by - 5)), 10)
-            pygame.draw.circle(s, WHITE, (int(bx - f * 1), int(by + 3)), 6)
-            pygame.draw.rect(s, (30, 30, 30), (bx - 4, by - 2, 8, 4))
+            bx, by = x + f * 8, F - 54
+            neck_end = (x + f * 50, F - 92)
+            pygame.draw.line(s, _PURPLE, (bx - f * 8, by - 8), (x - f * 6, F - 76), 3)
+            pygame.draw.line(s, _CORAL, (bx, by), neck_end, 5)
+            pygame.draw.line(s, INK_TEXT, neck_end, (neck_end[0] + f * 8, neck_end[1] - 7), 7)
+            p.blob(s, "circle", (bx - f * 2, by + 5), 14, fill=_PINK, line=_PURPLE)
+            p.blob(s, "circle", (bx + f * 6, by - 5), 10, fill=_PINK, line=_PURPLE)
+            pygame.draw.circle(s, _YELLOW, (int(bx - f * 1), int(by + 3)), 6)
         # 앞쪽 팔
         free_front = self.hands[1] is None
-        front = self.hands[1] or ((x + f * 13, F - 62) if self.bouquet else (x + f * 8, F - 50))
-        self.arm(s, (x + f * 3, sh_y + 6), front, arm_col)
+        front = self.hands[1] or ((x + f * 16, F - 58) if self.bouquet else (x + f * 15, F - 46))
+        self.arm(s, sh_front, front, top, line)
         if self.ring:
-            pygame.draw.circle(s, (255, 210, 70), (int(front[0]), int(front[1])), 3)
+            pygame.draw.circle(s, _YELLOW, (int(front[0]), int(front[1])), 4, 2)
         # 부케: 지정 위치 > 비어 있는 앞손 > 비어 있는 뒷손
         if self.bouquet:
             if self.bouquet_at:
@@ -1094,49 +1212,55 @@ class Person:
             elif free_front:
                 bp = front
             elif self.hands[0] is None:
-                bp = (x - f * 5, F - 50)
+                bp = (x - f * 15, F - 46)
             else:
                 bp = None
             if bp:
                 draw_bouquet(s, bp[0], bp[1] - 6, 0.75)
         # 머리 긁는 손은 머리 위에 보이도록 다시 그림
         if self.blush and self.hands[0]:
-            self.arm(s, (x - f * 3, sh_y + 6), self.hands[0], arm_col)
+            self.arm(s, sh_back, self.hands[0], top, line)
 
 
-class Guest:
-    """객석 하객 (뒷모습)"""
-    def __init__(self, x, y, k):
-        self.x, self.y, self.k = x, y, k
-        self.shirt = random.choice(((90, 120, 170), (170, 90, 110), (110, 150, 110), (200, 170, 110),
-                                    (120, 100, 160), (70, 70, 80), (220, 220, 225)))
-        self.hair = random.choice(((40, 30, 25), (90, 60, 35), (150, 110, 70), (200, 200, 205), (30, 30, 35)))
+class Guest(CostumePainter):
+    """객석 하객: 동물 옷을 입은 아이. 평소엔 신랑 신부 쪽을 보는 뒷모습이고,
+    말풍선을 띄울 때(turned)는 뒤돌아 얼굴을 보여 준다."""
+    def __init__(self, x, y, k, costume=None):
+        super().__init__(costume or random.choice(list(COSTUMES)), k)
+        self.x, self.y = x, y
         self.phase = random.uniform(0, math.tau)
         self.speed = random.uniform(0.45, 0.6)
         self.holding = False    # 부케를 받았는지
         self.hop = 0            # 새 글을 올리면 폴짝 (남은 프레임)
 
-    def draw(self, s, t, clapping, groove):
+    def draw(self, s, t, clapping, groove, turned=False):
         k = self.k
         x = self.x + (math.sin(t * 0.12 + self.phase) * 3 * k if groove else 0)
         y = self.y - (abs(math.sin(t * 0.2)) * 6 * k if self.holding else 0)
         if self.hop:
             y -= abs(math.sin(self.hop / 30 * math.pi * 3)) * 10 * k
-        pygame.draw.ellipse(s, self.shirt, (x - 24 * k, y + 8 * k, 48 * k, 40 * k))
+        r = 15 * k
+        arm = max(2, int(7 * k))
+        self.blob(s, "ellipse", (x - 23 * k, y + 8 * k, 46 * k, 40 * k))    # 통통한 몸
+        if not turned and self.costume in ("bunny", "bear", "sheep"):        # 뒷모습엔 꼬리
+            pygame.draw.circle(s, _FLUFF if self.costume != "bear" else self.fill,
+                               (int(x), int(y + 36 * k)), int(5 * k))
         if self.holding:   # 부케를 머리 위로 번쩍!
             for side in (-1, 1):
-                pygame.draw.line(s, self.shirt, (x + side * 18 * k, y + 14 * k), (x + side * 8 * k, y - 26 * k), int(6 * k))
-                pygame.draw.circle(s, SKIN, (int(x + side * 8 * k), int(y - 26 * k)), int(5 * k))
-            pygame.draw.circle(s, self.hair, (int(x), int(y)), int(14 * k))
-            draw_bouquet(s, x, y - 40 * k, 1.4 * k)
-            return
-        if clapping:
+                pygame.draw.line(s, self.fill, (x + side * 18 * k, y + 14 * k), (x + side * 9 * k, y - 26 * k), arm)
+                self.blob(s, "circle", (x + side * 9 * k, y - 26 * k), 5 * k)
+        elif clapping:
             gap = (3 + 7 * abs(math.sin(t * self.speed + self.phase))) * k
-            hy = y - 14 * k
+            hy = y - 12 * k
             for side in (-1, 1):
-                pygame.draw.line(s, self.shirt, (x + side * 18 * k, y + 14 * k), (x + side * gap, hy), int(6 * k))
-                pygame.draw.circle(s, SKIN, (int(x + side * gap), int(hy)), int(5 * k))
-        pygame.draw.circle(s, self.hair, (int(x), int(y)), int(14 * k))
+                pygame.draw.line(s, self.fill, (x + side * 18 * k, y + 14 * k), (x + side * gap, hy), arm)
+                self.blob(s, "circle", (x + side * gap, hy), 5 * k)
+        self.draw_ears(s, x, y, r)
+        self.blob(s, "circle", (x, y), r)                                    # 동물 모자
+        if turned:
+            self.draw_face(s, x, y, r)
+        if self.holding:
+            draw_bouquet(s, x, y - 42 * k, 1.4 * k)
 
 
 class FloatIcon:
@@ -1264,33 +1388,105 @@ def clip_text(font, text, width):
     return text + "…"
 
 
+def wrap_text(font, text, width, max_lines):
+    """글자 단위로 줄을 나눈다 (한글은 띄어쓰기 없이도 끊긴다). 넘치면 마지막 줄 끝을 … 로"""
+    lines, line = [], ""
+    for ch in " ".join(text.split()):
+        if font.size(line + ch)[0] > width:
+            lines.append(line.rstrip())
+            line = ch.lstrip()
+            if len(lines) == max_lines:
+                lines[-1] = clip_text(font, lines[-1] + "…", width)
+                return lines
+        else:
+            line += ch
+    if line:
+        lines.append(line)
+    return lines
+
+
+_glyph_cache = {}
+_fallback_fonts = {}
+
+
+def has_glyph(font, ch):
+    """글꼴에 그 글자가 있는지: 없는 글자 자리(빈 네모)와 그림이 같으면 없는 것"""
+    key = (id(font), ch)
+    if key not in _glyph_cache:
+        img = font.render(ch, True, (0, 0, 0))
+        missing = font.render("", True, (0, 0, 0))
+        _glyph_cache[key] = ch.isspace() or (img.get_size() != missing.get_size()
+                                             or pygame.image.tobytes(img, "RGBA") != pygame.image.tobytes(missing, "RGBA"))
+    return _glyph_cache[key]
+
+
+def render_text(font, text, color):
+    """방명록 글처럼 아무 글자나 올 수 있는 글을 그린다.
+    주아에 없는 글자(♥ ★ 등)는 시스템 글꼴로 바꿔 그려 빈 네모가 안 나오게 한다."""
+    if all(has_glyph(font, ch) for ch in text):
+        return font.render(text, True, color)
+    size = font.get_height() * 4 // 5
+    if size not in _fallback_fonts:
+        path = next((p for p in (pygame.font.match_font(n) for n in ("segoeuisymbol", "malgungothic", "applegothic"))
+                     if p), None)
+        _fallback_fonts[size] = pygame.font.Font(path, size)
+    runs, cur, cur_ok = [], "", None
+    for ch in text:                     # 글꼴이 같은 글자끼리 묶기
+        ok = has_glyph(font, ch)
+        if cur and ok != cur_ok:
+            runs.append((cur, cur_ok))
+            cur = ""
+        cur, cur_ok = cur + ch, ok
+    if cur:
+        runs.append((cur, cur_ok))
+    imgs = [(font if ok else _fallback_fonts[size]).render(run, True, color) for run, ok in runs]
+    out = pygame.Surface((sum(i.get_width() for i in imgs), font.get_height()), pygame.SRCALPHA)
+    x = 0
+    for img in imgs:
+        out.blit(img, (x, (out.get_height() - img.get_height()) // 2))
+        x += img.get_width()
+    return out
+
+
 class SpeechBubble:
-    """하객 머리 위에 통 튀어나오는 게시글 말풍선"""
-    POP, LIFE, FADE = 14, 170, 24
+    """하객 머리 위에 통 튀어나오는 방명록 말풍선 (둥근 말풍선 + 어긋나게 찍힌 옐로 그림자)"""
+    POP, LIFE, FADE = 14, 210, 24
+    TEXT = INK_TEXT             # 글씨: 부드러운 남색
+    PINK = INK["pink"]
+    YELLOW = INK["yellow"]
 
     def __init__(self, game, guest, post_id, title, author, new=False):
         self.guest, self.post_id, self.new = guest, post_id, new
         self.life = self.LIFE + (90 if new else 0)
         self.t = 0
-        title_img = game.small_font.render(clip_text(game.small_font, title, 116), True, (90, 40, 60))
-        author_img = game.tiny_font.render(clip_text(game.tiny_font, f"- {author}", 116), True, (170, 110, 130))
-        w = max(title_img.get_width(), author_img.get_width()) + 18
-        h = title_img.get_height() + author_img.get_height() + 10
+        font = game.small_font
+        lines = [render_text(font, line, self.TEXT) for line in wrap_text(font, title, 150, 2)]
+        author_img = render_text(game.tiny_font, clip_text(game.tiny_font, f"- {author}", 150), self.PINK)
+        w = max([author_img.get_width()] + [img.get_width() for img in lines]) + 22
+        h = sum(img.get_height() for img in lines) + author_img.get_height() + 14
         top = 8 if new else 0   # NEW 딱지 자리
-        self.img = pygame.Surface((w + (8 if new else 0), top + h + 10), pygame.SRCALPHA)
-        fill, edge = ((255, 248, 214), (240, 160, 60)) if new else ((255, 255, 255), (230, 150, 180))
+        self.img = pygame.Surface((w + 5 + (10 if new else 0), top + h + 14), pygame.SRCALPHA)
+        fill = (255, 246, 190) if new else (255, 255, 255)
         body = pygame.Rect(0, top, w, h)
-        pygame.draw.rect(self.img, fill, body, border_radius=10)
-        pygame.draw.rect(self.img, edge, body, 2, border_radius=10)
-        tail = [(w / 2 - 7, top + h - 2), (w / 2 + 7, top + h - 2), (w / 2, top + h + 9)]
+        cx = w // 2
+        tail = [(cx - 8, top + h - 3), (cx + 8, top + h - 3), (cx - 2, top + h + 11)]
+        # 옐로 판이 3px 비껴 찍힌 그림자 → 바탕 → 핑크 테두리
+        pygame.draw.rect(self.img, self.YELLOW, body.move(4, 4), border_radius=14)
+        pygame.draw.polygon(self.img, self.YELLOW, [(px + 4, py + 4) for px, py in tail])
+        pygame.draw.rect(self.img, fill, body, border_radius=14)
+        pygame.draw.rect(self.img, self.PINK, body, 2, border_radius=14)
         pygame.draw.polygon(self.img, fill, tail)
-        pygame.draw.lines(self.img, edge, False, [tail[0], tail[2], tail[1]], 2)
-        self.img.blit(title_img, (9, top + 5))
-        self.img.blit(author_img, (9, top + 5 + title_img.get_height()))
+        pygame.draw.lines(self.img, self.PINK, False, [tail[0], tail[2], tail[1]], 2)
+        pygame.draw.line(self.img, fill, (tail[0][0] + 2, tail[0][1]), (tail[1][0] - 2, tail[1][1]), 3)
+        y = top + 7
+        for img in lines:
+            self.img.blit(img, (11, y))
+            y += img.get_height()
+        self.img.blit(author_img, (11, y))
         if new:
             badge = game.tiny_font.render("NEW", True, WHITE)
-            br = badge.get_rect(topright=(self.img.get_width(), 0)).inflate(8, 2).clamp(self.img.get_rect())
-            pygame.draw.rect(self.img, (240, 90, 120), br, border_radius=6)
+            br = badge.get_rect(topright=(self.img.get_width(), 0)).inflate(12, 4).clamp(self.img.get_rect())
+            pygame.draw.rect(self.img, self.PINK, br, border_radius=br.h // 2)
             self.img.blit(badge, badge.get_rect(center=br.center))
 
     @property
@@ -1328,8 +1524,11 @@ class Ceremony:
         self.bride = Person("bride", 80, 1)
         self.groom = Person("groom", 135, 1)
         self.officiant = Person("officiant", 432, -1)
-        self.guests = [Guest(28 + i * 53, 598, 0.82) for i in range(9)] + \
-                      [Guest(34 + i * 69, 676, 1.05) for i in range(7)]
+        # 동물 옷은 옆자리끼리 겹치지 않게 돌려 가며 입힌다
+        kinds = list(COSTUMES)
+        random.shuffle(kinds)
+        seats = [(28 + i * 53, 598, 0.82) for i in range(9)] + [(34 + i * 69, 676, 1.05) for i in range(7)]
+        self.guests = [Guest(x, y, k, kinds[i % len(kinds)]) for i, (x, y, k) in enumerate(seats)]
         self.icons, self.notes, self.hearts, self.effects = [], [], [], []
         self.caption = None
         self.chute = None           # (x, y, alpha)
@@ -1383,17 +1582,17 @@ class Ceremony:
             pygame.draw.polygon(shaft, (255, 250, 210, 38),
                                 [(rect.x, rect.bottom), (rect.right, rect.bottom), (wx + 90, FLOOR + 30), (wx - 10, FLOOR + 30)])
             bg.blit(shaft, (0, 0))
-        # 벽 아래 장식판
-        bg.fill((232, 212, 196), (0, 360, W, 70))
+        # 벽 아래 장식판 (옅은 핑크 → 인쇄하면 고운 핑크 망점)
+        bg.fill((252, 222, 232), (0, 360, W, 70))
         for x in range(0, W, 60):
-            pygame.draw.rect(bg, (220, 198, 180), (x + 6, 368, 48, 54), 2)
-        # 바닥과 카펫
+            pygame.draw.rect(bg, INK["pink"], (x + 6, 368, 48, 54), 2, border_radius=10)
+        # 바닥: 종이색에서 옐로로 번지는 그러데이션(꽃 그림의 망점 번짐처럼), 카펫은 핑크 잉크 한 판
         for y in range(430, H):
             k = (y - 430) / (H - 430)
-            bg.fill((int(lerp(214, 180, k)), int(lerp(186, 150, k)), int(lerp(150, 116, k))), (0, y, W, 1))
-        bg.fill((185, 40, 66), (0, 482, W, 72))
-        bg.fill((230, 190, 90), (0, 482, W, 3))
-        bg.fill((230, 190, 90), (0, 551, W, 3))
+            bg.fill((int(lerp(250, 255, k)), int(lerp(240, 226, k)), int(lerp(226, 130, k))), (0, y, W, 1))
+        bg.fill(INK["pink"], (0, 482, W, 72))
+        bg.fill(INK["yellow"], (0, 482, W, 4))
+        bg.fill(INK["yellow"], (0, 550, W, 4))
         # 꽃 장식 줄
         rng = random.Random(3)
         for i in range(8):
@@ -1749,8 +1948,10 @@ class Ceremony:
         if self.bubble_wait:
             self.bubble_wait -= 1
         elif self.bubble_queue:
-            self.pop_bubble(self.bubble_queue.pop(0))
-            self.bubble_wait = 12
+            # 두 줄 말풍선이라 한꺼번에 많으면 겹친다: 3개까지만 띄우고 나머지는 차례를 기다린다
+            if len(self.bubbles) < 3:
+                self.pop_bubble(self.bubble_queue.pop(0))
+                self.bubble_wait = 12
         elif board.posts and len(self.bubbles) < 3:
             # 한 바퀴 돈 뒤에는 가끔씩 아무 하객이나 다시 한마디
             self.pop_bubble(random.choice(list(board.posts)))
@@ -1765,9 +1966,11 @@ class Ceremony:
         s.blit(self.bg, (0, 0))
         self.officiant.draw(s)
         # 주례석 (주례자 앞)
-        pygame.draw.rect(s, (150, 96, 60), (402, FLOOR - 78, 60, 78))
-        pygame.draw.rect(s, (120, 74, 44), (396, FLOOR - 84, 72, 10))
-        draw_heart(s, (240, 200, 90), 432, FLOOR - 42, 24)
+        # 주례석: 코랄 잉크 한 판 + 보라 선, 노란 하트
+        pygame.draw.rect(s, _CORAL, (402, FLOOR - 78, 60, 78), border_top_left_radius=8, border_top_right_radius=8)
+        pygame.draw.rect(s, _PURPLE, (403, FLOOR - 77, 60, 78), 2, border_top_left_radius=8, border_top_right_radius=8)
+        pygame.draw.rect(s, _PINK, (396, FLOOR - 86, 72, 12), border_radius=6)
+        draw_heart(s, _YELLOW, 432, FLOOR - 42, 24)
 
         if self.chute:
             cx, cy, alpha = self.chute
@@ -1809,8 +2012,9 @@ class Ceremony:
             pygame.draw.circle(s, (255, 200, 220), (int(x - size * 0.22), int(y - size * 0.15)), max(2, int(size * 0.06)))
 
         clapping = self.clap > 0
+        talking = {b.guest for b in self.bubbles}     # 말풍선을 띄운 하객은 뒤돌아 얼굴을 보여 준다
         for guest in self.guests:
-            guest.draw(s, self.t, clapping, self.groove)
+            guest.draw(s, self.t, clapping, self.groove, turned=guest in talking or guest.holding)
 
         for h in self.hearts:
             h.draw(s)
@@ -1917,6 +2121,82 @@ class Ceremony:
 
 
 # ===================================================================
+# 리소 인쇄 필터
+# ===================================================================
+class Riso:
+    """다 그린 화면을 동화책 리소 인쇄물처럼 바꾼다.
+    1) 색을 '잉크 조합' 중 하나로 고르되, 중간색(그러데이션)은 45도로 기운 둥근 망점으로 풀고
+    2) 잉크 판마다 1~2px씩 어긋나게 찍은 뒤 3) 잉크가 덜 묻은 자리·종이 얼룩을 얹는다."""
+    # 쓸 잉크 조합 (비트: 핑크 1, 옐로 2, 하늘 4, 초록 8). 탁해지는 조합(핑크+초록 등)은 뺀다.
+    COMBOS = [0, 1, 2, 4, 8, 1 | 2, 1 | 4, 4 | 8, 2 | 8, 1 | 4 | 8]
+
+    def __init__(self, size=(W, H)):
+        w, h = size
+        # 잉크 조합의 겹쳐 찍힌 색 = 종이 x 잉크들 (곱하기 혼합). 16번 = 종이 얼룩
+        colors = []
+        for bits in range(16):
+            c = np.array(RISO_PAPER, float)
+            for i, (_, ink, _, _) in enumerate(RISO_INKS):
+                if bits >> i & 1:
+                    c *= np.array(ink) / 255
+            colors.append(c)
+        self.colors = np.vstack([colors, [RISO_SPECK]]).astype(np.uint8)
+        palette = np.array([colors[b] for b in self.COMBOS])
+
+        # 망점 단계(16) x 색(채널당 16단계) → 가장 가까운 잉크 조합(비트) 표 (64KB라 캐시에 들어간다).
+        # 망점 문턱값을 표에 미리 넣어 두면 매 프레임엔 표만 찾으면 된다. 초록에 무게를 더 준다.
+        centers = np.arange(16) * 16 + 8
+        grid = np.stack(np.meshgrid(centers, centers, centers, indexing="ij"), -1).reshape(-1, 3)
+        offsets = ((np.arange(16) + 0.5) / 16 - 0.5) * RISO_SPREAD
+        shifted = np.clip(grid[None] + offsets[:, None, None], 0, 255).reshape(-1, 1, 3)
+        dist = (((shifted - palette[None]) ** 2) * np.array([3, 4, 2])).sum(-1)
+        self.lut = np.array(self.COMBOS, np.uint8)[dist.argmin(-1)]   # [단계 * 4096 + 색 번호] → 잉크 비트
+
+        # 아래 배열은 모두 (세로, 가로) 순서다. 화면 메모리가 그 순서라 계산이 빠르다.
+        # 45도로 기운 둥근 망점 무늬: 칸마다 문턱 단계(0~15)
+        yy, xx = np.mgrid[0:h, 0:w].astype(float)
+        u = (xx + yy) / (RISO_SCREEN * math.sqrt(2))
+        v = (yy - xx) / (RISO_SCREEN * math.sqrt(2))
+        dots = (np.cos(2 * math.pi * u) + np.cos(2 * math.pi * v)) / 4 + 0.5
+        self.level = (np.clip(dots * 16, 0, 15).astype(np.uint32) * 4096)
+
+        # 잉크가 덜 묻은 자리(판마다 다름)와 종이 얼룩. 고운 종이 결이 되도록 1px 단위
+        rng = np.random.default_rng(20261103)
+        self.layers = [(1 << i, dy, dx, (rng.random((h, w)) >= 0.045).astype(np.uint8) * (1 << i))
+                       for i, (_, _, dx, dy) in enumerate(RISO_INKS)]
+        self.speck = (rng.random((h, w)) < 0.02).astype(np.uint8) * 16
+        self.mapped = None
+
+    def apply(self, src, dst):
+        # 픽셀을 정수 하나(0xRRGGBB 꼴)로 한꺼번에 다뤄야 60fps 안에 끝난다
+        px = pygame.surfarray.pixels2d(src)
+        p = np.array(px.T, dtype=np.uint32)     # (세로, 가로) 순서로 복사
+        del px                                  # 화면 잠금 풀기
+        rs, gs, bs = src.get_shifts()[:3]
+        key = (p >> (rs + 4)) & 15              # 빨강 4비트 << 8 | 초록 << 4 | 파랑
+        key <<= 8
+        key |= (p >> (bs + 4)) & 15
+        p >>= gs + 4                            # p는 더 안 쓰므로 그 자리에서 계산
+        p &= 15
+        p <<= 4
+        key |= p
+        key += self.level
+        idx = self.lut.take(key)
+        out = np.zeros_like(idx)
+        for bit, dy, dx, keep in self.layers:
+            layer = idx & bit
+            if dx or dy:
+                layer = np.roll(layer, (dy, dx), axis=(0, 1))
+            layer &= keep
+            out |= layer
+        out += (out == 0) * self.speck
+        if self.mapped is None or self.mapped[0] is not dst:     # 화면 픽셀 형식에 맞춘 잉크 색
+            self.mapped = (dst, np.array([dst.map_rgb(tuple(int(v) for v in c)) for c in self.colors],
+                                         dtype=np.uint32))
+        pygame.surfarray.blit_array(dst, self.mapped[1].take(out).T)
+
+
+# ===================================================================
 # 게임 본체
 # ===================================================================
 class Game:
@@ -1924,7 +2204,10 @@ class Game:
         pygame.mixer.pre_init(SR, -16, 1, 512)
         pygame.init()
         pygame.display.set_caption("스카이 웨딩")
-        self.screen = pygame.display.set_mode((W, H))
+        self.display = pygame.display.set_mode((W, H))
+        self.screen = pygame.Surface((W, H))     # 여기에 그린 뒤 present()에서 인쇄 효과를 입혀 내보낸다
+        self.riso = Riso() if np is not None else None
+        self.riso_on = True
         self.clock = pygame.time.Clock()
         self.tiny_font = load_font(12, bold=True)
         self.small_font = load_font(16, bold=True)
@@ -1934,7 +2217,7 @@ class Game:
 
         self.screen.fill((255, 240, 246))
         self.text("소리를 만드는 중...", self.mid_font, (190, 60, 110), (W / 2, H / 2))
-        pygame.display.flip()
+        self.present()
         try:
             self.audio = Audio()
         except pygame.error:
@@ -1948,20 +2231,31 @@ class Game:
         self.last_catcher = None   # 지난번에 부케를 받은 하객
         self.board = Board()
 
+    def present(self):
+        if self.riso and self.riso_on:
+            self.riso.apply(self.screen, self.display)
+        else:
+            self.display.blit(self.screen, (0, 0))
+        pygame.display.flip()
+
     def text(self, msg, font, color, center, alpha=255, box=False):
         img = font.render(msg, True, color)
         rect = img.get_rect(center=center)
         if box:
-            panel = pygame.Surface((rect.w + 30, rect.h + 12), pygame.SRCALPHA)
-            pygame.draw.rect(panel, (255, 255, 255, 215), panel.get_rect(), border_radius=16)
+            # 둥근 종이 딱지 + 핑크 잉크 테두리 (동화책 라벨 느낌)
+            panel = pygame.Surface((rect.w + 34, rect.h + 14), pygame.SRCALPHA)
+            pygame.draw.rect(panel, (255, 255, 255, 230), panel.get_rect(), border_radius=18)
+            pygame.draw.rect(panel, INK["pink"], panel.get_rect(), 3, border_radius=18)
             self.screen.blit(panel, panel.get_rect(center=center))
             self.screen.blit(img, rect)
             return
-        shadow = font.render(msg, True, (60, 30, 50))
+        # 남색 잉크로 테두리와 그림자를 둘러 망점 배경 위에서도 읽히게
+        shadow = font.render(msg, True, INK_TEXT)
         if alpha < 255:
             img.set_alpha(alpha)
             shadow.set_alpha(alpha)
-        self.screen.blit(shadow, rect.move(2, 2))
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (2, 2), (1, 2), (2, 1)):
+            self.screen.blit(shadow, rect.move(dx, dy))
         self.screen.blit(img, rect)
 
     def start_sky(self):
@@ -1979,17 +2273,24 @@ class Game:
         shade = pygame.Surface((W, H), pygame.SRCALPHA)
         shade.fill((255, 255, 255, 70))
         s.blit(shade, (0, 0))
-        self.text("스카이 웨딩", self.big_font, (255, 120, 170), (W / 2, 150))
+        self.text("스카이 웨딩", self.big_font, INK["pink"], (W / 2, 150))
         self.text("Sky Wedding", self.mid_font, WHITE, (W / 2, 200))
         lines = ["손을 꼭 잡은 신랑 신부의 스카이다이빙!",
                  "하트, 편지, 반지, 예복, 웨딩드레스, 일렉기타,",
                  "데이지 부케 7가지를 모아 결혼식장으로!",
                  "반짝이 별은 보너스, 새 떼는 피해 주세요.",
                  "",
-                 "방향키/WASD: 이동    M: 소리 켜기/끄기"]
+                 "방향키/WASD: 이동    M: 소리    R: 인쇄 효과"]
+        # 설명은 둥근 종이 카드에 남색 잉크로 (망점 배경 위 작은 글씨는 읽기 어렵다)
+        card = pygame.Rect(0, 0, 400, 186)
+        card.center = (W / 2, 262 + 2.5 * 28)
+        pygame.draw.rect(s, INK["yellow"], card.move(5, 5), border_radius=22)    # 어긋나게 찍힌 그림자
+        pygame.draw.rect(s, (255, 255, 255), card, border_radius=22)
+        pygame.draw.rect(s, INK["pink"], card, 3, border_radius=22)
         for i, line in enumerate(lines):
             if line:
-                self.text(line, self.small_font, WHITE, (W / 2, 262 + i * 28))
+                img = self.small_font.render(line, True, INK_TEXT)
+                s.blit(img, img.get_rect(center=(W / 2, 262 + i * 28)))
         if (self.tick // 30) % 2 == 0:
             self.text("Enter 키를 눌러 시작", self.mid_font, YELLOW, (W / 2, 470))
 
@@ -2004,6 +2305,8 @@ class Game:
                     return
                 if event.key == pygame.K_m:
                     self.audio.toggle_mute()
+                if event.key == pygame.K_r:
+                    self.riso_on = not self.riso_on
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     if self.state == "title":
                         self.start_sky()
@@ -2027,7 +2330,7 @@ class Game:
             if self.audio.muted:
                 img = self.tiny_font.render("소리 꺼짐 (M)", True, (120, 120, 120))
                 self.screen.blit(img, (8, H - 18))
-            pygame.display.flip()
+            self.present()
             self.clock.tick(FPS)
             self.tick += 1
 

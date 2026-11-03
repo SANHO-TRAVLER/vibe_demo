@@ -11,8 +11,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `todolist/` | 업무용 퀘스트 보드 웹앱 (가장 활발한 프로젝트) |
 | `english-dict/` | 원서 읽기용 전자사전 "YEONGDONG" (로컬판 + claude.ai판) |
 | `demoport/` | 조향사(향장 향료 크리에이션·어플리케이션) 프로필 웹사이트. 산호초·조개 바다 도트 테마, 모바일 지원. 글은 `content.js`, 도트는 `app.js`의 `pixel.ART`(테두리 자동), 설계는 `prd.md` |
-| `DemoWeb/` | 익명 게시판. 이 저장소에서 유일하게 Next.js 16 · shadcn/ui · TypeScript를 쓴다(`npm run dev`, 포트 3000). 데이터는 Neon PostgreSQL(`.env.local`의 `DATABASE_URL`, git 제외), 쓰기는 `src/lib/actions.ts`의 Server Actions. `/api/posts`는 `shooting.py`가 읽으니 응답 모양(`{posts: [{id, title, author}]}`)을 바꾸지 말 것 |
-| `shooting.py` | "스카이 웨딩" 종스크롤 게임 (`shooting_v1.py`는 이전 버전). 결혼식장 하객이 DemoWeb 게시글을 말풍선으로 띄운다(서버가 꺼져 있으면 생략) |
+| `DemoWeb/` | 스카이 웨딩 축하 방명록(닉네임·100자 축하글·비밀번호). 이 저장소에서 유일하게 Next.js 16 · shadcn/ui · TypeScript를 쓴다(`npm run dev`, 포트 3000, Vercel은 Root Directory `DemoWeb`). 데이터는 Neon PostgreSQL `guestbook` 테이블(`.env.local`의 `DATABASE_URL`, git 제외), 쓰기는 `src/lib/actions.ts`의 Server Actions. `/api/posts`는 `shooting.py`가 읽으니 응답 모양(`{posts: [{id, title, author}]}`)을 바꾸지 말 것 |
+| `shooting.py` | "스카이 웨딩" 종스크롤 게임 (`shooting_v1.py`는 이전 버전). 결혼식장 하객이 DemoWeb 방명록 글을 말풍선으로 띄운다(서버가 꺼져 있으면 생략) |
+
+**스카이 웨딩 디자인 = 몽글몽글한 동화책 리소 인쇄.** 사용자가 원하는 분위기는 "몽글몽글한 동화 같은 이미지"다(참고: UKI 동물 옷 아이들, GANMO 리소 진, 망점 번짐 꽃). 픽셀 도트 느낌은 쓰지 않는다. 게임과 방명록이 같은 네 잉크(핑크 `#ff8ac4`, 옐로 `#ffde54`, 하늘 `#7eb4ea`, 초록 `#56b476`)와 크림색 종이 `#f9f1e6`, 검정 대신 남색 글씨 `#2e5470`, 둥근 주아(Jua) 글꼴을 쓰고, 하객·캐릭터는 동물 옷 아이들(토끼·병아리·개구리·고양이·곰·사자·양)이고, 신랑은 곰 옷·신부는 토끼 옷·주례는 양 옷이다(게임 `CostumePainter`·`Person`, 방명록 `costume-kid.tsx`). 캐릭터 색은 잉크 색 그대로 써야 인쇄 효과에서 지저분한 망점으로 풀리지 않는다. 게임은 `Riso` 클래스가 매 프레임 단색 면은 꽉 차게, 그러데이션은 둥근 망점으로 찍고 판을 어긋나게 겹친다(numpy, 프레임당 약 12ms라 60fps 예산이 빠듯하니 무거운 처리를 더하지 말 것). 글꼴은 루트 `fonts/Jua-Regular.ttf`, 주아에 없는 ♥★ 같은 글자는 `render_text`가 시스템 글꼴로 대신 그린다. 방명록은 `DemoWeb/src/app/globals.css`의 토큰과 `.misprint`·`.riso-card`·`.halftone`·`.print-btn`, 그림은 `components/costume-kid.tsx`. 한쪽 색·캐릭터를 바꾸면 다른 쪽도 맞출 것
 | `breakout.py`, `snake.py`, `tetris.html` | 작은 게임들 |
 
 ## 실행
