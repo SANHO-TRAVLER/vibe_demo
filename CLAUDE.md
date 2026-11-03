@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | `todolist/` | 업무용 퀘스트 보드 웹앱 (가장 활발한 프로젝트) |
 | `english-dict/` | 원서 읽기용 전자사전 "YEONGDONG" (로컬판 + claude.ai판) |
-| `demoport/` | 조향사(향장 향료 크리에이션·어플리케이션) 프로필 웹사이트 — 기획 단계, `prd.md` 참고 |
+| `demoport/` | 조향사(향장 향료 크리에이션·어플리케이션) 프로필 웹사이트. 산호초·조개 바다 도트 테마, 모바일 지원. 글은 `content.js`, 도트는 `app.js`의 `pixel.ART`(테두리 자동), 설계는 `prd.md` |
+| `DemoWeb/` | 익명 게시판. 이 저장소에서 유일하게 Next.js 16 · shadcn/ui · TypeScript를 쓴다(`npm run dev`, 포트 3000). 데이터는 `data/db.json`, 쓰기는 `src/lib/actions.ts`의 Server Actions |
 | `shooting.py` | "스카이 웨딩" 종스크롤 게임 (`shooting_v1.py`는 이전 버전) |
 | `breakout.py`, `snake.py`, `tetris.html` | 작은 게임들 |
 
@@ -20,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 웹 앱 (.claude/launch.json 에 정의됨)
 python -m http.server 8123 --bind 127.0.0.1 --directory todolist      # todolist
 python -m http.server 8124 --bind 127.0.0.1 --directory english-dict  # english-dict 로컬판
+python -m http.server 8125 --bind 127.0.0.1 --directory demoport      # demoport
 
 # 게임 (pygame 필요, 그림·소리 모두 코드로 생성)
 python shooting.py

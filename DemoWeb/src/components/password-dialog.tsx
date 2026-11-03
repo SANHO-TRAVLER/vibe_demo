@@ -1,0 +1,72 @@
+"use client"
+
+import { useActionState, useState } from "react"
+
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import type { FormState } from "@/lib/actions"
+
+// 비밀번호를 받아 삭제 같은 작업을 실행하는 확인 창
+export function PasswordDialog({
+  action,
+  title,
+  description,
+  confirmLabel,
+  trigger,
+}: {
+  action: (prev: FormState, formData: FormData) => Promise<FormState>
+  title: string
+  description: string
+  confirmLabel: string
+  trigger: React.ReactElement
+}) {
+  const [open, setOpen] = useState(false)
+  const [state, formAction, pending] = useActionState(async (prev: FormState, fd: FormData) => {
+    const result = await action(prev, fd)
+    if (!result.error && !result.fieldErrors) setOpen(false)
+    return result
+  }, {})
+  const message = state.error ?? state.fieldErrors?.password
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <form action={formAction} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="비밀번호"
+              aria-label="비밀번호"
+              aria-invalid={Boolean(message)}
+              autoFocus
+            />
+            {message && <p className="text-destructive text-xs">{message}</p>}
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>취소</DialogClose>
+            <Button type="submit" variant="destructive" disabled={pending}>
+              {pending ? "처리 중…" : confirmLabel}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
