@@ -6,10 +6,18 @@ import type { Category } from "@/lib/categories"
 
 export { CATEGORIES, type Category } from "@/lib/categories"
 
-// 게시판 데이터는 Neon PostgreSQL에 저장한다. 연결 문자열은 .env.local 의 DATABASE_URL.
-const url = process.env.DATABASE_URL
-if (!url) throw new Error("DATABASE_URL 이 없습니다. DemoWeb/.env.local 을 확인하세요.")
-const raw = neon(url)
+// 게시판 데이터는 Neon PostgreSQL에 저장한다. 연결 문자열은 DATABASE_URL
+// (로컬은 .env.local, Vercel은 프로젝트 환경 변수).
+// 빌드 중에는 모듈만 읽고 쿼리는 하지 않으므로, 값 확인은 첫 쿼리 때 한다.
+let client: ReturnType<typeof neon> | null = null
+
+function db() {
+  if (client) return client
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error("DATABASE_URL 이 없습니다. DemoWeb/.env.local 또는 Vercel 환경 변수를 확인하세요.")
+  client = neon(url)
+  return client
+}
 
 export type Comment = {
   id: string
@@ -55,6 +63,7 @@ async function setup() {
   ]
   const col = (i: number) => samples.map((s) => s[i])
   const times = samples.map((_, i) => new Date(Date.now() - (samples.length - i) * 90 * 60_000).toISOString())
+  const raw = db()
 
   await raw.transaction([
     raw`SELECT pg_advisory_xact_lock(20261103)`,
@@ -99,7 +108,7 @@ export async function sql(strings: TemplateStringsArray, ...values: unknown[]) {
     throw err
   })
   await ready
-  return raw(strings, ...values) as Promise<Record<string, unknown>[]>
+  return db()(strings, ...values) as Promise<Record<string, unknown>[]>
 }
 
 const iso = (v: unknown) => (v instanceof Date ? v : new Date(String(v))).toISOString()
