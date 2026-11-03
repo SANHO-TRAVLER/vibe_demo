@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 
 import { COSTUME_KINDS, Couple, CostumeKid, type Costume } from "@/components/costume-kid"
+import { prefetchGame } from "@/lib/prefetch-game"
 import { cn } from "@/lib/utils"
 
 type Guest = { id: number; nickname: string; message: string }
@@ -47,6 +48,11 @@ function crowd(guests: Guest[], newId?: number): Walker[] {
  */
 export function EntranceScene({ guests, newId, inline = false }: { guests: Guest[]; newId?: number; inline?: boolean }) {
   const [run, setRun] = useState(0) // 다시 보기: key 를 바꿔 애니메이션을 처음부터
+  // 하객이 입장하는 동안 게임 파일을 미리 받아 두면, 문을 눌렀을 때 게임이 빨리 뜬다
+  useEffect(() => {
+    const timer = setTimeout(prefetchGame, 1500)
+    return () => clearTimeout(timer)
+  }, [])
   const walkers = crowd(guests, newId)
   const coupleAt = walkers.length * GAP + 1.6
   const endAt = coupleAt + 5.4

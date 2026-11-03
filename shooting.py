@@ -15,6 +15,8 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
   DemoWeb 방명록의 "게임 하기" 버튼으로 브라우저에서도 돌아갑니다. pygbag 이 이 파일을 웹어셈블리로
   바꾸며(DemoWeb: npm run build:game → public/game/), 웹판은 numpy 대신 가벼운 RisoLite 효과를 씁니다.
   휴대폰에선 화면을 누른 채 끌어서 이동하고, 화면을 누르면 시작합니다.
+  브라우저는 소리 장치를 48000Hz 로 여니 소리는 장치 주파수에 맞춰 만들고(Audio), 빨리 시작하도록
+  타이틀을 먼저 띄운 뒤 매 프레임 조금씩(Audio.work) 만듭니다.
 
 조작
   방향키 / WASD : 이동 (화면을 누른 채 끌어도 됨)
@@ -41,6 +43,7 @@ import asyncio
 import importlib
 import json
 import math
+import operator
 import os
 import random
 import sys
@@ -49,6 +52,7 @@ import time
 import urllib.request
 import webbrowser
 from array import array
+from itertools import accumulate, repeat
 from pathlib import Path
 
 import pygame
@@ -195,74 +199,165 @@ def glow(radius, color):
 
 # ===================================================================
 # 효과음 합성 (외부 파일 없이 코드로 소리 생성)
+# 한 샘플씩 파이썬으로 계산하면 브라우저에선 몇 초씩 걸린다. 그래서 한 주기 파형 표를 만들어 두고
+# map·accumulate 처럼 C 안에서 도는 연산으로 한꺼번에 계산한다.
 # ===================================================================
 def midi(m):
     return 440.0 * 2 ** ((m - 69) / 12)
 
 
-def tone(freq, dur, wave="sine", vol=0.4, attack=0.005, decay=4.0,
-         slide=None, drive=0.0, vibrato=0.0):
+WAVE_N = 2048              # 한 주기 파형 표의 칸 수
+# 파형별 배음 (배음 번호, 세기). sine 외에는 나이퀴스트 아래 배음만 더해 거친 잡음(에일리어싱)이 없다
+WAVE_PARTIALS = {
+    "sine": lambda h: [(1, 1.0)],
+    "triangle": lambda h: [(k, (-1) ** (k // 2) * 8 / (math.pi * k) ** 2) for k in range(1, h + 1, 2)],
+    "square": lambda h: [(k, 0.6 * 4 / (math.pi * k)) for k in range(1, h + 1, 2)],
+    "saw": lambda h: [(k, 2 / (math.pi * k)) for k in range(1, h + 1)],
+    # 부드러운 플루트 (보사노바 멜로디)
+    "flute": lambda h: [(1, 1.0), (2, 0.22), (3, 0.06)][:h],
+    # 나일론 기타 줄을 튕긴 소리 (보사노바 반주)
+    "pluck": lambda h: [(k, 0.9 / k ** 1.6) for k in range(1, min(h, 8) + 1)],
+}
+_wave_cache = {}
+_tone_cache = {}
+
+
+def wave_table(wave, freq, drive=0.0):
+    """freq 를 낼 때 쓸 한 주기 파형 표. 배음 수는 32·16·8·4·2·1 중 나이퀴스트 아래로 고른다."""
+    harm = next((h for h in (32, 16, 8, 4, 2) if h * freq < SR * 0.45), 1)
+    key = (wave, harm, drive)
+    if key not in _wave_cache:
+        tab = [0.0] * WAVE_N
+        for k, a in WAVE_PARTIALS[wave](harm):
+            part = map(a.__mul__, map(math.sin, map((math.tau * k / WAVE_N).__mul__, range(WAVE_N))))
+            tab = list(map(operator.add, tab, part))
+        if drive:   # 일렉기타의 찌그러짐 (tanh 로 부드럽게)
+            norm = math.tanh(drive)
+            tab = [math.tanh(v * drive) / norm for v in tab]
+        _wave_cache[key] = tab
+    return _wave_cache[key]
+
+
+_env_cache = {}
+
+
+def envelope(n, vol, attack, decay):
+    """vol 에서 시작해 decay 로 줄어드는 소리 크기. 앞 attack 초는 0에서 올라가고 끝 15ms 는 0으로 닫는다."""
+    key = (n, attack, decay, SR)
+    if key not in _env_cache:   # 크기 1 짜리 모양을 기억해 두고 vol 만 곱한다
+        _env_cache[key] = unit_envelope(n, attack, decay)
+    return list(map(vol.__mul__, _env_cache[key]))
+
+
+def unit_envelope(n, attack, decay):
+    env = list(map(math.exp, map((-decay / SR).__mul__, range(n))))
+    a = min(n, int(attack * SR))
+    if a > 0:
+        env[:a] = map(operator.mul, env[:a], map((1 / a).__mul__, range(a)))
+    tail = min(n, max(1, int(0.015 * SR)))
+    env[n - tail:] = map(operator.mul, env[n - tail:], map((1 / tail).__mul__, range(tail, 0, -1)))
+    return env
+
+
+def tone_steps(freq, dur, wave="sine", vol=0.4, attack=0.005, decay=4.0,
+               slide=None, drive=0.0, vibrato=0.0):
+    """음 하나를 만든다. 긴 음은 8192 샘플마다 멈추는 제너레이터라 프레임 사이사이에 나눠 만들 수 있다.
+    만든 소리는 `out = yield from tone_steps(...)` 로 받는다."""
+    key = (freq, dur, wave, vol, attack, decay, slide, drive, vibrato, SR)
+    if key in _tone_cache:          # 멜로디엔 같은 음이 자주 나온다
+        return _tone_cache[key][:]
     n = int(dur * SR)
-    out = [0.0] * n
-    ph = 0.0
-    tail = max(1, int(0.015 * SR))
-    norm = math.tanh(drive) if drive else 1.0
-    for i in range(n):
-        t = i / SR
-        f = freq if slide is None else freq + (slide - freq) * i / n
-        if vibrato:
-            f *= 1 + vibrato * math.sin(math.tau * 5.5 * t)
-        ph += f / SR
-        fr = ph - int(ph)
-        if wave == "sine":
-            v = math.sin(math.tau * ph)
-        elif wave == "square":
-            v = 0.6 if fr < 0.5 else -0.6
-        elif wave == "saw":
-            v = 2 * fr - 1
-        else:  # triangle
-            v = 4 * abs(fr - 0.5) - 1
-        if drive:
-            v = math.tanh(v * drive) / norm
-        env = min(1.0, t / attack) * math.exp(-decay * t)
-        if n - i < tail:
-            env *= (n - i) / tail
-        out[i] = v * env * vol
-    return out
+    tab = wave_table(wave, max(freq, slide or 0), drive)
+    env = envelope(n, vol, attack, decay)
+    k = WAVE_N / SR
+    df = (slide - freq) * k / n if slide else 0.0
+    out, ph = [], 0.0
+    for i0 in range(0, n, 8192):
+        idx = range(i0, min(n, i0 + 8192))
+        if not df and not vibrato:
+            phase = map((freq * k).__mul__, idx)                # 표의 몇 번째 칸인지
+        else:                                                   # 높이가 바뀌면 위상은 주파수의 누적합
+            step = map((freq * k).__add__, map(df.__mul__, idx))
+            if vibrato:     # 초당 5.5번 떨리는 비브라토
+                wob = map(math.sin, map((math.tau * 5.5 / SR).__mul__, idx))
+                step = map(operator.mul, step, map((1.0).__add__, map(vibrato.__mul__, wob)))
+            phase = list(accumulate(step, initial=ph))[1:]
+            ph = phase[-1]
+        wav = map(tab.__getitem__, map(WAVE_N.__rmod__, map(int, phase)))
+        out.extend(map(operator.mul, wav, env[i0:i0 + 8192]))
+        yield
+    _tone_cache[key] = out
+    return out[:]
+
+
+def tone(*args, **kw):
+    """tone_steps 를 한 번에 끝까지 돌린다"""
+    steps = tone_steps(*args, **kw)
+    while True:
+        try:
+            next(steps)
+        except StopIteration as done:
+            return done.value
 
 
 def noise(dur, vol=0.4, decay=8.0, smooth=0.0, attack=0.002, swell=False):
     n = int(dur * SR)
-    out = [0.0] * n
-    y = 0.0
-    for i in range(n):
-        t = i / SR
-        y += (1 - smooth) * (random.uniform(-1, 1) - y)
-        env = math.sin(math.pi * i / n) if swell else min(1.0, t / attack) * math.exp(-decay * t)
-        out[i] = y * env * vol
-    return out
+    rnd = random.random
+    src = [rnd() * 2 - 1 for _ in range(n)]
+    if smooth:      # 한 극 저역 필터: 클수록 부드러운 '쉬익'
+        k = 1 - smooth
+        src = list(accumulate(src, lambda y, x: y + k * (x - y), initial=0.0))[1:]
+    if swell:
+        env = map(vol.__mul__, map(math.sin, map((math.pi / n).__mul__, range(n))))
+    else:
+        env = envelope(n, vol, attack, decay)
+    return list(map(operator.mul, src, env))
 
 
 def mix(dst, src, start=0):
     end = start + len(src)
     if end > len(dst):
         dst.extend([0.0] * (end - len(dst)))
-    for i, v in enumerate(src):
-        dst[start + i] += v
+    dst[start:end] = map(operator.add, dst[start:end], src)
     return dst
 
 
-def melody(seq, step, **kw):
-    """seq: [(midi 또는 None, 길이(step 단위)), ...]"""
-    buf, pos = [], 0.0
+def scaled(buf, k):
+    return list(map(k.__mul__, buf))
+
+
+def melody(buf, seq, step, start=0.0, **kw):
+    """seq: [(midi 또는 None, 길이(step 단위)), ...] 를 buf 의 start 초부터 섞는다.
+    음 하나마다 멈추는 제너레이터라 프레임 사이사이에 조금씩 만들 수 있다."""
+    pos = start
     for m, length in seq:
         if m is not None:
-            mix(buf, tone(midi(m), length * step + 0.05, **kw), int(pos * SR))
+            mix(buf, (yield from tone_steps(midi(m), length * step + 0.05, **kw)), int(pos * SR))
         pos += length * step
-    total = int(pos * SR)
-    if len(buf) < total:
-        buf.extend([0.0] * (total - len(buf)))
-    return buf[:total]
+        yield
+
+
+def echo(buf, taps=((0.17, 0.22), (0.37, 0.1))):
+    """작은 방 울림: 늦게 돌아오는 작은 메아리 몇 개. 메마른 전자음을 부드럽게 감싼다.
+    긴 음악이면 오래 걸리므로 조각마다 멈추는 제너레이터"""
+    dry = buf[:]
+    for delay, gain in taps:
+        d = int(delay * SR)
+        for i in range(0, len(dry), 30000):
+            mix(buf, scaled(dry[i:i + 30000], gain), d + i)
+            yield
+
+
+def loop_fold(buf, total):
+    """반복 음악: 끝을 넘친 꼬리(울림)를 앞쪽에 겹쳐서, 다시 처음으로 돌아갈 때 '뚝' 끊기지 않게 한다"""
+    total = int(total * SR)
+    over = buf[total:]
+    del buf[total:]
+    buf.extend([0.0] * (total - len(buf)))
+    while over:
+        mix(buf, over[:total])
+        over = over[total:]
+    return buf
 
 
 class Audio:
@@ -270,111 +365,198 @@ class Audio:
         self.sounds = {}
         self.muted = False
         self.music = None
+        self.want_music = None      # 아직 만드는 중인 배경음악: 다 되면 바로 튼다
         self.lengths = {}
         init = pygame.mixer.get_init()
         self.ok = bool(init) and init[1] == -16
         self.channels = init[2] if init else 1
+        self.repeat = 1
+        self.pending = None
         if self.ok:
+            # 브라우저는 소리 장치를 48000Hz 로 연다. 22050Hz 로 만든 소리를 그대로 넣으면 2.2배 빠르고
+            # 높게 들리므로, 장치 주파수의 절반(24000) 정도로 만들고 샘플을 두 번씩 써서 맞춘다.
+            global SR
+            freq = init[0]
+            self.repeat = max(1, round(freq / 22050))
+            SR = freq // self.repeat
             pygame.mixer.set_num_channels(16)
-            self.build()
+            self.pending = self.build()
+
+    def work(self, budget=0.006):
+        """아직 안 만든 소리를 budget 초 동안만 만든다. 매 프레임 불러서 화면이 멈추지 않게 한다."""
+        end = time.perf_counter() + budget
+        while self.pending and time.perf_counter() < end:
+            try:
+                if next(self.pending, StopIteration) is StopIteration:
+                    self.pending = None
+            except pygame.error:    # 소리 장치가 이상하면 소리 없이 진행
+                self.ok, self.pending = False, None
+
+    def finish(self):
+        while self.pending:
+            self.work(1.0)
 
     def make(self, name, samples, volume=1.0):
-        data = array("h", (int(max(-1.0, min(1.0, v)) * 32000) for v in samples))
-        if self.channels > 1:
-            data = array("h", (v for v in data for _ in range(self.channels)))
+        """-1~1 소리를 16비트로 바꿔 등록한다. 길면 나눠서 바꾸느라 중간에 멈춘다(제너레이터)."""
+        data = array("h")
+        for i in range(0, len(samples), 20000):
+            part = samples[i:i + 20000]
+            if part and (max(part) > 1.0 or min(part) < -1.0):    # 넘치는 곳만 있을 때 잘라 낸다
+                part = list(map(max, repeat(-1.0), map(min, repeat(1.0), part)))
+            data.extend(map(int, map((32000.0).__mul__, part)))
+            yield
+        rep = self.repeat * self.channels    # 샘플을 (주파수 배수 x 채널 수) 번씩 이어 쓴다
+        if rep > 1:
+            wide = array("h", bytes(2 * len(data) * rep))
+            for j in range(rep):
+                wide[j::rep] = data
+            data = wide
         snd = pygame.mixer.Sound(buffer=data.tobytes())
         snd.set_volume(volume)
         self.sounds[name] = snd
         self.lengths[name] = len(samples) / SR
+        if self.want_music == name:
+            self.play_music(name)
 
     def build(self):
+        """소리를 하나씩 만든다. 하늘 장면에 필요한 것부터, 결혼식 소리는 하늘을 나는 동안에."""
+        yield from self.build_bgm_sky()
         # 아이템 획득: 반짝이는 상승 아르페지오
         buf = []
         for i, m in enumerate((84, 88, 91, 96)):
             mix(buf, tone(midi(m), 0.35, "triangle", 0.35, decay=7), int(i * 0.06 * SR))
-        self.make("item", buf)
+        yield from self.make("item", buf)
         # 반짝이 별
         buf = tone(2093, 0.18, "sine", 0.22, decay=18)
         mix(buf, tone(3136, 0.16, "sine", 0.12, decay=20), int(0.04 * SR))
-        self.make("sparkle", buf, 0.7)
+        yield from self.make("sparkle", buf, 0.7)
         # 새와 부딪힘: 뿅~ 하고 내려가는 소리
-        self.make("bump", tone(520, 0.35, "square", 0.22, decay=5, slide=140))
-        # 6개 모두 모음: 짧은 팡파레
+        yield from self.make("bump", tone(520, 0.35, "square", 0.22, decay=5, slide=140))
+        # 7개 모두 모음: 짧은 팡파레
         buf = []
         for i, m in enumerate((72, 76, 79)):
             mix(buf, tone(midi(m), 0.2, "triangle", 0.35, decay=6), int(i * 0.12 * SR))
         for m in (72, 76, 79, 84):
             mix(buf, tone(midi(m), 1.0, "triangle", 0.2, decay=2.5), int(0.36 * SR))
-        self.make("complete", buf)
+        yield from self.make("complete", buf)
         # 낙하산 펴지는 바람 소리
-        self.make("whoosh", noise(1.3, 0.9, smooth=0.93, swell=True))
+        yield from self.make("whoosh", noise(1.3, 0.9, smooth=0.93, swell=True))
+
+        yield from self.build_bgm_hall()
+        # 착지
+        yield from self.make("land", tone(180, 0.25, "sine", 0.5, decay=12, slide=70))
         # 옷 갈아입기 펑
         buf = noise(0.45, 0.7, decay=9, smooth=0.75)
         mix(buf, tone(900, 0.6, "sine", 0.18, decay=5, slide=2600))
-        self.make("poof", buf)
-        # 착지
-        self.make("land", tone(180, 0.25, "sine", 0.5, decay=12, slide=70))
+        yield from self.make("poof", buf)
         # 종이 바스락
-        self.make("paper", noise(0.3, 0.35, decay=10, smooth=0.45))
+        yield from self.make("paper", noise(0.3, 0.35, decay=10, smooth=0.45))
         # 반지 종소리
-        buf = tone(1318.5, 1.8, "sine", 0.3, decay=2.2)
-        mix(buf, tone(2637, 1.4, "sine", 0.12, decay=3.5))
-        mix(buf, tone(3951, 0.9, "sine", 0.06, decay=6))
-        self.make("bell", buf)
+        buf = yield from tone_steps(1318.5, 1.8, "sine", 0.3, decay=2.2)
+        mix(buf, (yield from tone_steps(2637, 1.4, "sine", 0.12, decay=3.5)))
+        mix(buf, (yield from tone_steps(3951, 0.9, "sine", 0.06, decay=6)))
+        yield from self.make("bell", buf)
+        yield from self.build_song()
         # 뽀뽀
-        self.make("kiss", tone(1300, 0.13, "sine", 0.35, decay=12, slide=2300))
+        yield from self.make("kiss", tone(1300, 0.13, "sine", 0.35, decay=12, slide=2300))
         # 하트 부풀기
-        buf = tone(170, 2.5, "sine", 0.3, attack=0.2, decay=0.0, slide=760, vibrato=0.04)
-        mix(buf, tone(340, 2.5, "triangle", 0.12, attack=0.2, decay=0.0, slide=1520, vibrato=0.04))
-        self.make("inflate", buf)
+        buf = yield from tone_steps(170, 2.5, "sine", 0.3, attack=0.2, decay=0.0, slide=760, vibrato=0.04)
+        mix(buf, (yield from tone_steps(340, 2.5, "triangle", 0.12, attack=0.2, decay=0.0, slide=1520,
+                                        vibrato=0.04)))
+        yield from self.make("inflate", buf)
         # 하트 펑!
         buf = noise(0.4, 1.0, decay=13, smooth=0.25)
         mix(buf, tone(140, 0.35, "sine", 0.8, decay=9, slide=40))
-        self.make("pop", buf)
-        # 하객 박수 (6초)
+        yield from self.make("pop", buf)
+        # 하객 박수 (6초): 손뼉 소리 열여섯 가지를 크기만 바꿔 420번 친다
+        claps = [noise(0.04, 0.35, decay=120, smooth=random.uniform(0.2, 0.6)) for _ in range(16)]
         buf = [0.0] * int(6.0 * SR)
-        for _ in range(420):
+        for i in range(420):
             t = random.uniform(0, 5.8)
             loud = min(1.0, t / 0.6) * (1.0 if t < 4.0 else (5.8 - t) / 1.8)
-            mix(buf, noise(0.04, 0.35 * loud * random.uniform(0.5, 1.0), decay=120,
-                           smooth=random.uniform(0.2, 0.6)), int(t * SR))
-        self.make("clap", buf, 0.8)
+            mix(buf, scaled(random.choice(claps), loud * random.uniform(0.5, 1.0)), int(t * SR))
+            if i % 60 == 0:
+                yield
+        yield from self.make("clap", buf, 0.8)
 
-        # 신부의 축가: 일렉기타 멜로디 (창작곡)
-        song = [(67, 2), (72, 2), (74, 2), (76, 4), (74, 2), (72, 4),
-                (76, 2), (79, 2), (81, 4), (79, 2), (76, 2), (74, 4),
-                (72, 2), (74, 2), (76, 2), (79, 2), (84, 8)]
-        lead = [(m - 12, l) for m, l in song]
-        buf = melody(lead, 0.22, wave="saw", vol=0.28, decay=1.8, drive=3.5)
-        fifth = [(m + 7, l) for m, l in lead]
-        harm = melody(fifth, 0.22, wave="saw", vol=0.12, decay=1.8, drive=3.5)
-        for i, v in enumerate(harm):
-            buf[i] += v
-        roots = [(48, 8), (53, 8), (55, 8), (48, 8), (53, 8), (48, 8)]
-        bass = melody(roots, 0.22, wave="triangle", vol=0.3, decay=0.8)
-        for i, v in enumerate(bass[:len(buf)]):
-            buf[i] += v
-        buf.extend(tone(midi(60), 1.2, "saw", 0.25, decay=2.5, drive=3.5))
-        self.make("song", buf, 0.9)
+    def build_song(self):
+        """신부의 축가: 일렉기타 멜로디 (창작곡). 약 5초에 끝나고, 결혼식 장면도 이 길이만큼 연주한다."""
+        step = 0.18                                     # 8분음표 하나 = 0.18초
+        lead = [(67, 1), (72, 1), (74, 1), (76, 2), (74, 1), (72, 2),
+                (76, 1), (79, 1), (81, 2), (79, 1), (76, 1), (74, 2),
+                (72, 1), (74, 1), (76, 1), (79, 1), (84, 4)]
+        lead = [(m - 12, l) for m, l in lead]           # 24칸 = 4.32초
+        total = 5.0                                     # 마지막 음이 울리다 사라질 때까지
+        buf = [0.0] * int(total * SR)
+        # 따뜻하게 살짝 찌그러진 기타 (예전엔 세게 찌그러뜨린 톱니파라 날카롭고 잡음 같았다)
+        yield from melody(buf, lead[:-1], step, wave="saw", vol=0.26, decay=2.2, drive=1.6)
+        mix(buf, (yield from tone_steps(midi(lead[-1][0]), total - 20 * step, "saw", 0.26, decay=1.6,
+                                        drive=1.6, vibrato=0.006)), int(20 * step * SR))
+        # 3도 아래 화음을 작게 (5도로 겹치면 거칠게 들린다)
+        harm = [(m - 4 if m % 12 in (4, 9, 11) else m - 3, l) for m, l in lead]
+        yield from melody(buf, harm, step, wave="saw", vol=0.08, decay=2.2, drive=1.6)
+        roots = [(48, 8), (53, 8), (55, 4), (48, 4)]
+        yield from melody(buf, roots, step, wave="triangle", vol=0.26, decay=0.9)
+        yield from echo(buf, ((0.21, 0.18),))
+        yield from self.make("song", buf[:int(total * SR)], 0.9)
 
-        # 하늘 배경음: 오르골 멜로디 (창작곡, 반복)
-        tune = [(76, 2), (79, 2), (84, 2), (83, 2), (81, 2), (79, 2), (76, 4),
-                (77, 2), (81, 2), (86, 2), (84, 2), (83, 4), (79, 4),
-                (76, 2), (79, 2), (84, 2), (83, 2), (81, 2), (84, 2), (88, 2), (86, 2),
-                (84, 2), (83, 2), (81, 2), (83, 2), (84, 8)]
-        buf = melody(tune, 0.25, wave="sine", vol=0.22, decay=3.5)
-        bass = melody([(48, 8), (45, 8), (41, 8), (43, 8), (48, 8), (45, 8), (41, 8), (48, 8)],
-                      0.25, wave="triangle", vol=0.16, decay=1.2)
-        for i, v in enumerate(bass[:len(buf)]):
-            buf[i] += v
-        self.make("bgm_sky", buf, 0.6)
+    def build_bgm_sky(self):
+        """하늘 배경음: 보사노바 (창작곡, 반복). 나일론 기타 반주 + 부드러운 플루트 멜로디.
+        16분음표 칸 = 0.12초, 한 마디 16칸, 8마디 = 15.36초."""
+        s16 = 0.12
+        bar = 16 * s16
+        cmaj7, am7, dm7, g7 = (52, 55, 59, 64), (55, 60, 64, 67), (53, 57, 60, 65), (53, 55, 59, 62)
+        bars = [  # 마디마다 [(시작 칸, 베이스 근음, 화음)] — 장7·단7 화음이라 밝고 포근하다
+            [(0, 36, cmaj7)], [(0, 45, am7)], [(0, 38, dm7)], [(0, 43, g7)],
+            [(0, 36, cmaj7)], [(0, 45, am7)], [(0, 38, dm7), (8, 43, g7)], [(0, 36, (52, 55, 57, 62, 64))],
+        ]
+        buf = [0.0] * int(8 * bar * SR)
+        # 반주 리듬: 보사노바 클라베(3+3+4+3+3, 두 마디에 걸친 엇박) 자리에서 화음을 살짝 튕긴다
+        clave = ([0, 6, 12], [4, 10])
+        strums = {}     # 같은 화음은 한 번만 만든다
+        for b, segs in enumerate(bars):
+            t0 = b * bar
+            for k, (start, root, notes) in enumerate(segs):
+                end = segs[k + 1][0] if k + 1 < len(segs) else 16
+                # 베이스: 1박 근음, 3박 5도 (엄지로 치듯 둥글게)
+                for pos, m in ((start, root), (start + 8, root + 7)):
+                    if pos < end:
+                        mix(buf, tone(midi(m), 0.9, "pluck", 0.2, attack=0.004, decay=3.2),
+                            int((t0 + pos * s16) * SR))
+                if notes not in strums:     # 아래 음부터 아주 조금씩 늦게 (손가락으로 뜯듯)
+                    strums[notes] = []
+                    for j, m in enumerate(notes):
+                        mix(strums[notes], tone(midi(m), 0.34, "pluck", 0.055, attack=0.003, decay=7),
+                            int(j * 0.008 * SR))
+                    yield
+                for c in clave[b % 2]:
+                    if start <= c < end:
+                        mix(buf, strums[notes], int((t0 + c * s16) * SR))
+            yield
+        # 멜로디: 예전 오르골 선율을 한 옥타브 낮추고 엇박(당김음)으로 흔든다
+        tune = [[76, 79, 84, 83], [81, 79, 76], [77, 81, 86, 84], [83, 79],
+                [76, 79, 84, 83], [81, 84, 88, 86], [84, 83, 81, 83], [84]]
+        rhythm = {4: [(0, 3), (3, 3), (6, 4), (10, 6)], 3: [(0, 3), (3, 3), (6, 10)],
+                  2: [(0, 6), (6, 10)], 1: [(0, 16)]}
+        for b, notes in enumerate(tune):
+            for m, (pos, length) in zip(notes, rhythm[len(notes)]):
+                mix(buf, (yield from tone_steps(midi(m - 12), length * s16 + 0.08, "flute", 0.17,
+                                                attack=0.03, decay=1.4)), int((b * bar + pos * s16) * SR))
+            yield
+        yield from echo(buf)
+        loop_fold(buf, 8 * bar)
+        yield from self.make("bgm_sky", buf, 0.6)
 
-        # 결혼식장 배경음: 잔잔한 화음
-        buf = [0.0] * int(8 * SR)
-        for k, chord in enumerate(((60, 64, 67), (57, 60, 64), (53, 57, 60), (55, 59, 62))):
+    def build_bgm_hall(self):
+        """결혼식장 배경음: 잔잔한 장7 화음 (반복)"""
+        buf = []
+        for k, chord in enumerate(((60, 64, 67, 71), (57, 60, 64, 67), (53, 57, 60, 64), (55, 59, 62, 65))):
             for m in chord:
-                mix(buf, tone(midi(m), 2.1, "sine", 0.09, attack=0.4, decay=0.6), int(k * 2 * SR))
-        self.make("bgm_hall", buf[:int(8 * SR)], 0.6)
+                mix(buf, (yield from tone_steps(midi(m), 2.6, "sine", 0.07, attack=0.4, decay=0.6)),
+                    int(k * 2 * SR))
+        yield from echo(buf)
+        loop_fold(buf, 8)
+        yield from self.make("bgm_hall", buf, 0.6)
 
     def play(self, name):
         if self.ok and not self.muted and name in self.sounds:
@@ -385,8 +567,11 @@ class Audio:
         if self.ok and name in self.sounds:
             self.music = self.sounds[name]
             self.music.play(loops=-1)
+        else:
+            self.want_music = name
 
     def stop_music(self, fade_ms=600):
+        self.want_music = None
         if self.music:
             if fade_ms:
                 self.music.fadeout(fade_ms)
@@ -402,7 +587,6 @@ class Audio:
             pygame.mixer.pause()
         else:
             pygame.mixer.unpause()
-
 
 # ===================================================================
 # 아이템 아이콘
@@ -1805,8 +1989,11 @@ class Ceremony:
         A.stop_music(400)
         A.play("song")
         self.groove = True
-        song_frames = int(A.lengths.get("song", 10.0) * FPS) + 20
-        for i in range(song_frames):
+        # 프레임 수가 아니라 실제 시간으로 잰다 (브라우저처럼 60fps 가 안 나와도 음악과 함께 끝나게)
+        song_end = time.perf_counter() + A.lengths.get("song", 5.0)
+        i = 0
+        while time.perf_counter() < song_end:
+            i += 1
             strum = math.sin(i * 0.5) * 6
             b.hands = ((b.x + 38, FLOOR - 86), (b.x + 6, FLOOR - 58 + strum))
             b.bob = -abs(math.sin(i * 0.14)) * 3
@@ -2318,7 +2505,8 @@ class RisoLite:
 # ===================================================================
 class Game:
     def __init__(self):
-        pygame.mixer.pre_init(SR, -16, 1, 512)
+        # 브라우저는 화면 그리기가 늦어지면 소리 버퍼가 비어 '지직' 하므로 버퍼를 넉넉히 (약 0.1초)
+        pygame.mixer.pre_init(SR, -16, 1, 4096 if IS_WEB else 512)
         pygame.init()
         pygame.display.set_caption("스카이 웨딩")
         self.display = pygame.display.set_mode((W, H))
@@ -2332,14 +2520,8 @@ class Game:
         self.mid_font = load_font(22, bold=True)
         self.big_font = load_font(46, bold=True)
 
-        self.screen.fill((255, 240, 246))
-        self.text("소리를 만드는 중...", self.mid_font, (190, 60, 110), (W / 2, H / 2))
-        self.present()
-        try:
-            self.audio = Audio()
-        except pygame.error:
-            self.audio = Audio.__new__(Audio)
-            self.audio.ok, self.audio.sounds, self.audio.muted, self.audio.music, self.audio.lengths = False, {}, False, None, {}
+        # 소리는 여기서 다 만들지 않고, 타이틀 화면을 띄운 뒤 매 프레임 조금씩 만든다 (Audio.work)
+        self.audio = Audio()
 
         self.state = "title"
         self.sky = SkyPhase(self, demo=True)
@@ -2381,6 +2563,7 @@ class Game:
         self.audio.play_music("bgm_sky")
 
     def start_ceremony(self):
+        self.audio.finish()     # 결혼식 소리가 아직 덜 만들어졌으면 마저 만든다
         self.ceremony = Ceremony(self)
         self.state = "ceremony"
 
@@ -2481,6 +2664,7 @@ class Game:
                 img = self.tiny_font.render("소리 꺼짐 (M)", True, (120, 120, 120))
                 self.screen.blit(img, (8, H - 18))
             self.present()
+            self.audio.work(0.012 if self.state == "title" else 0.005)
             self.clock.tick(FPS)
             self.tick += 1
             await asyncio.sleep(0)

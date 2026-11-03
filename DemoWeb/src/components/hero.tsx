@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { Couple } from "@/components/costume-kid"
+import { GameLink } from "@/components/game-link"
 
 // 방명록 첫 화면 머리: 손잡은 신랑 신부, 제목, 하객 입장·게임 버튼
 export function Hero() {
@@ -22,10 +23,10 @@ export function Hero() {
           <Link href="/entrance" className="print-btn inline-flex h-11 items-center bg-ink-yellow px-5 font-heading text-base">
             하객 입장 보기 ▶
           </Link>
-          {/* 게임은 Next 페이지가 아니라 public/game 의 정적 파일(pygbag)이라 일반 링크로 연다 */}
-          <a href="/game/index.html" className="print-btn inline-flex h-11 items-center bg-ink-pink px-5 font-heading text-base text-white">
+          {/* 게임은 public/game 의 정적 파일(pygbag). 손이 닿으면 미리 받기 시작한다 */}
+          <GameLink className="print-btn inline-flex h-11 items-center bg-ink-pink px-5 font-heading text-base text-white">
             게임 하기 ♥
-          </a>
+          </GameLink>
         </nav>
       </div>
     </header>
