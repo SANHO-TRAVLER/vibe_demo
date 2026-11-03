@@ -10,7 +10,7 @@ const pixel = (() => {
     // 붉은 코랄
     C: '#e8604f', c: '#f6977f', D: '#c84536',
     // 연분홍 조개 · 진주
-    S: '#f3b8b5', s: '#fde3df', H: '#de9294', P: '#fffaf8', p: '#f6d3d9',
+    S: '#f3b8b5', s: '#fde3df', H: '#de9294', P: '#fde9ec', p: '#eebac5',
     // 맑은 바다
     A: '#6cc7c6', a: '#c3ece8', B: '#3e9fae', t: '#d3f3ee',
     // 해초 · 모래 · 불가사리 · 금빛
