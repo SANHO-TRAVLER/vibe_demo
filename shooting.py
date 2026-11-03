@@ -1161,7 +1161,8 @@ class Note:
             pygame.draw.line(s, self.color, (x + 17, y - 2), (x + 17, y - 20), 2)
             pygame.draw.line(s, self.color, (x + 3, y - 18), (x + 17, y - 20), 3)
         else:
-            pygame.draw.line(s, self.color, (x + 3, y - 18), (x + 9, y - 12), 2)
+            pygame.draw.line(s, self.color, (x + 3, y - 1
+                                             8), (x + 9, y - 12), 2)
 
 
 class MiniHeart:
