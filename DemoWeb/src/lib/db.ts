@@ -18,6 +18,8 @@ function db() {
 
 export const NICKNAME_MAX = 12
 export const MESSAGE_MAX = 100
+// 방명록 전체 글 수 상한. 넘으면 새 글을 받지 않는다 (자동 프로그램 도배로 DB 가 무한정 커지는 것을 막는다).
+export const MAX_ENTRIES = 5000
 
 export type Entry = {
   id: number

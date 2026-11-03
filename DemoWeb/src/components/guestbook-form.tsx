@@ -36,6 +36,11 @@ export function GuestbookForm() {
     <div className="space-y-10">
       <form action={formAction} className="riso-card grid gap-4 p-5 sm:p-7">
         <h2 className="font-heading text-2xl text-ink-pink">축하 한마디 남기기</h2>
+        {/* 함정 칸: 사람 눈과 키보드에는 안 보이고, 칸을 전부 채우는 자동 프로그램만 채운다 (actions.ts 에서 거른다) */}
+        <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+          <label htmlFor="website">웹사이트 (비워 두세요)</label>
+          <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+        </div>
         <Field id="message" label="축하의 말씀" error={err.message}>
           <Textarea
             id="message"

@@ -1,3 +1,4 @@
+import { cacheLife } from "next/cache"
 import { connection } from "next/server"
 
 import { sql, toEntry, type Entry } from "@/lib/db"
@@ -36,10 +37,18 @@ export async function entranceGuests(limit = 24): Promise<EntranceGuest[]> {
   return rows.map((r) => ({ id: Number(r.id), nickname: String(r.nickname), message: String(r.message) }))
 }
 
-// 스카이 웨딩 게임(shooting.py)이 하객 말풍선에 쓰는 목록.
+// 게임 말풍선에 쓸 글 수. 누구나 부를 수 있는 주소라, 글이 아무리 많아도 최근 것만 보낸다.
+export const POSTS_FOR_GAME = 200
+
+// 스카이 웨딩 게임(shooting.py)이 하객 말풍선에 쓰는 목록 (최근 POSTS_FOR_GAME 개, 먼저 쓴 순서대로).
 // 게임이 읽는 모양({ id, title, author })은 그대로 두고, 축하 한마디를 title 로 보낸다.
+// 이 주소를 마구 불러도 DB 를 매번 읽지 않도록 1분 정도 저장해 두고 재사용한다 ('minutes' = 1분마다 새로).
 export async function listPostTitles() {
-  await connection()
-  const rows = await sql`SELECT id, nickname, message FROM guestbook ORDER BY id`
+  "use cache"
+  cacheLife("minutes")
+  const rows = await sql`
+    SELECT id, nickname, message FROM (
+      SELECT id, nickname, message FROM guestbook ORDER BY id DESC LIMIT ${POSTS_FOR_GAME}
+    ) recent ORDER BY id`
   return rows.map((r) => ({ id: Number(r.id), title: String(r.message), author: String(r.nickname) }))
 }
