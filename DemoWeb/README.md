@@ -66,3 +66,4 @@ npm run build:game     # ../shooting.py 를 고친 뒤마다. public/game/ 을 �
 - 파이썬·pygame 실행기는 실행 때 pygame-web CDN에서 받는다 (처음 열 때 몇 MB, 화면을 한 번 눌러야 시작).
 - 브라우저에선 numpy 를 불러오기만 해도 pygame 화면이 안 만들어진다. 그래서 웹판은 numpy 없이 `RisoLite`(망점 + 잉크 팔레트 + 종이 결, 판 어긋남 없음)를 쓰고, `shooting.py` 는 numpy 를 `importlib` 로 숨겨 불러온다(pygbag 이 import 문을 보고 미리 받아 버리므로).
 - 같은 사이트의 `/api/posts` 를 6초마다 받아 하객 말풍선을 띄운다.
+- 엔딩 화면의 **방명록으로** 버튼은 같은 사이트의 첫 화면(`/`)으로 돌아온다 (컴퓨터판은 `DEMOWEB_URL` 을 브라우저로 연다).

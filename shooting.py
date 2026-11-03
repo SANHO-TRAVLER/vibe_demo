@@ -20,7 +20,8 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
   방향키 / WASD : 이동 (화면을 누른 채 끌어도 됨)
   M             : 소리 켜기/끄기
   R             : 리소 인쇄 효과 켜기/끄기
-  Enter         : 시작 / 엔딩 후 처음으로
+  Enter         : 시작 / 엔딩 후 처음으로 (엔딩 화면의 "처음부터 다시" 버튼과 같음)
+  B             : 엔딩에서 축하 방명록 열기 ("방명록으로" 버튼과 같음, 웹판은 방명록으로 돌아감)
   ESC           : 종료
 
 진행
@@ -46,6 +47,7 @@ import sys
 import threading
 import time
 import urllib.request
+import webbrowser
 from array import array
 from pathlib import Path
 
@@ -85,7 +87,8 @@ INK_TEXT = (46, 84, 112)               # 글씨·선: 검정 대신 부드러운
 RISO_SCREEN = 6                        # 망점 간격(px). 45도로 기운 둥근 점
 RISO_SPREAD = 40                       # 망점 세기. 작을수록 단색 면이 꽉 차고 그러데이션만 점이 된다
 # DemoWeb 게시판 글 목록 API (다른 주소면 환경 변수 DEMOWEB_URL 로 바꾼다)
-BOARD_URL = os.environ.get("DEMOWEB_URL", "http://localhost:3000").rstrip("/") + "/api/posts"
+DEMOWEB_URL = os.environ.get("DEMOWEB_URL", "http://localhost:3000").rstrip("/")
+BOARD_URL = DEMOWEB_URL + "/api/posts"
 BOARD_POLL_SEC = 2.0       # 웹 서버에서 글 목록을 다시 받아 오는 간격(초)
 BOARD_POLL_SEC_WEB = 6.0   # 웹판은 받아 오는 동안 화면이 잠깐 멈추므로 더 드물게
 BOARD_POLL = 60            # 받아 둔 목록을 게임에 반영하는 간격(프레임)
@@ -2161,8 +2164,18 @@ class Ceremony:
             img.set_alpha(int(255 * min(1, age / 25)))
             lift = (1 - ease(age / 25)) * 12
             s.blit(img, img.get_rect(center=(x, y + lift)))
-        if self.ending_t > len(self.arch) * 8 + 60 and (self.ending_t // 40) % 2 == 0:
-            g.text("Enter 키나 화면을 누르면 처음으로", g.small_font, WHITE, (W / 2, H - 22))
+        buttons = self.ending_buttons()
+        if buttons:
+            g.button(s, buttons["restart"], "처음부터 다시", (255, 255, 255), INK["pink"])
+            g.button(s, buttons["guestbook"], "방명록으로 ♥", INK["pink"], (255, 255, 255))
+
+    def ending_buttons(self):
+        """엔딩 글자가 다 나오면 화면 아래에 뜨는 버튼 자리. 아직이면 None"""
+        if self.arch is None or self.ending_t <= len(self.arch) * 8 + 60:
+            return None
+        y = H - 74
+        return {"restart": pygame.Rect(W / 2 - 196, y, 180, 52),
+                "guestbook": pygame.Rect(W / 2 + 16, y, 180, 52)}
 
 
 # ===================================================================
@@ -2398,14 +2411,38 @@ class Game:
         if (self.tick // 30) % 2 == 0:
             self.text("Enter 키나 화면을 눌러 시작", self.mid_font, YELLOW, (W / 2, 470))
 
-    def press_start(self):
-        """Enter 키나 화면 터치: 타이틀에선 시작, 엔딩에선 처음으로"""
+    def press_start(self, pos=None):
+        """Enter 키나 화면 터치(pos): 타이틀에선 시작.
+        엔딩에선 '처음부터 다시'(또는 Enter)·'방명록으로' 버튼을 눌렀을 때만 움직인다."""
         if self.state == "title":
             self.start_sky()
-        elif self.state == "ceremony" and self.ceremony.ending_t > 200:
+            return
+        buttons = self.ceremony.ending_buttons() if self.state == "ceremony" else None
+        if not buttons:
+            return
+        if pos is not None and buttons["guestbook"].collidepoint(pos):
+            self.go_guestbook()
+        elif pos is None or buttons["restart"].collidepoint(pos):
             self.audio.stop_music(300)
             self.state = "title"
             self.sky = SkyPhase(self, demo=True)
+
+    def go_guestbook(self):
+        """축하 방명록으로: 웹판은 같은 사이트의 첫 화면으로 이동, 컴퓨터판은 브라우저로 연다"""
+        if IS_WEB:
+            window = __import__("platform").window
+            window.location.href = str(window.location.origin) + "/"
+        else:
+            webbrowser.open(DEMOWEB_URL + "/")
+
+    def button(self, s, rect, label, fill, color):
+        """동글동글한 버튼: 옐로 판이 비껴 찍힌 그림자 + 남색 테두리"""
+        r = rect.h // 2
+        pygame.draw.rect(s, INK["yellow"], rect.move(4, 4), border_radius=r)
+        pygame.draw.rect(s, fill, rect, border_radius=r)
+        pygame.draw.rect(s, INK_TEXT, rect, 3, border_radius=r)
+        img = render_text(self.mid_font, label, color)
+        s.blit(img, img.get_rect(center=rect.center))
 
     async def run(self):
         # 웹(pygbag)에서도 돌도록 매 프레임 끝에 브라우저에 차례를 넘긴다 (await asyncio.sleep(0))
@@ -2414,7 +2451,7 @@ class Game:
                 if event.type == pygame.QUIT:
                     return
                 if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) == 1:
-                    self.press_start()
+                    self.press_start(getattr(event, "pos", None))
                 if event.type != pygame.KEYDOWN:
                     continue
                 if event.key == pygame.K_ESCAPE and not IS_WEB:
@@ -2425,6 +2462,8 @@ class Game:
                     self.riso_on = not self.riso_on
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     self.press_start()
+                if event.key == pygame.K_b and self.state == "ceremony" and self.ceremony.ending_buttons():
+                    self.go_guestbook()
 
             keys = pygame.key.get_pressed()
             if self.state == "title":
