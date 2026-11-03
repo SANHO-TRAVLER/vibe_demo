@@ -1,225 +1,113 @@
 import { Suspense } from "react"
 import Link from "next/link"
-import { ChevronLeftIcon, ChevronRightIcon, MessageSquareIcon, SearchIcon } from "lucide-react"
+import { XIcon } from "lucide-react"
 
-import { CategoryBadge } from "@/components/category-badge"
+import { COSTUME_KINDS, CostumeKid } from "@/components/costume-kid"
+import { GuestbookForm } from "@/components/guestbook-form"
+import { PasswordDialog } from "@/components/password-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { CATEGORIES, type Category } from "@/lib/categories"
-import { formatListDate } from "@/lib/format"
-import { listPosts, parseCategory } from "@/lib/queries"
+import { deleteEntry } from "@/lib/actions"
+import { formatStamp } from "@/lib/format"
+import { listEntries } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 export default function Home(props: PageProps<"/">) {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">전체 글</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          자유롭게 글을 남겨 주세요. 수정·삭제는 글쓸 때 정한 비밀번호로 합니다.
-        </p>
-      </div>
-      <Suspense fallback={<BoardSkeleton />}>
-        <Board searchParams={props.searchParams} />
+    <div className="space-y-12">
+      <GuestbookForm />
+      <Suspense fallback={<EntriesSkeleton />}>
+        <Entries searchParams={props.searchParams} />
       </Suspense>
     </div>
   )
 }
 
-type Query = { q?: string; category?: Category; page?: number }
-
-// 현재 조건에서 일부만 바꾼 목록 주소를 만든다.
-function href(base: Query, patch: Query) {
-  const next = { ...base, ...patch }
-  const sp = new URLSearchParams()
-  if (next.category) sp.set("category", next.category)
-  if (next.q) sp.set("q", next.q)
-  if (next.page && next.page > 1) sp.set("page", String(next.page))
-  const s = sp.toString()
-  return s ? `/?${s}` : "/"
-}
-
-async function Board({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
+async function Entries({ searchParams }: { searchParams: PageProps<"/">["searchParams"] }) {
   const sp = await searchParams
-  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
-  const query: Query = {
-    q: one(sp.q)?.trim() || undefined,
-    category: parseCategory(one(sp.category)),
-    page: Number(one(sp.page)) || 1,
-  }
-  const { posts, total, page, pageCount } = await listPosts(query)
+  const pageParam = Array.isArray(sp.page) ? sp.page[0] : sp.page
+  const { entries, total, page, pageCount } = await listEntries(Number(pageParam) || 1)
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav className="flex flex-wrap gap-1.5">
-          {[undefined, ...CATEGORIES].map((c) => (
-            <Link
-              key={c ?? "all"}
-              href={href({ q: query.q }, { category: c })}
-              className={buttonVariants({
-                size: "sm",
-                variant: query.category === c ? "default" : "outline",
-              })}
-            >
-              {c ?? "전체"}
-            </Link>
+    <section className="space-y-6" aria-labelledby="entries-title">
+      <div className="flex items-end justify-between gap-3">
+        <h2 id="entries-title" className="font-heading text-3xl leading-none">
+          받은 축하 <span className="text-ink-pink">{total}</span>
+        </h2>
+        <div className="flex -space-x-3" aria-hidden>
+          {(["chick", "frog", "cat"] as const).map((kind) => (
+            <CostumeKid key={kind} kind={kind} size={34} />
           ))}
-        </nav>
-        <form action="/" className="flex gap-2">
-          {query.category && <input type="hidden" name="category" value={query.category} />}
-          <Input
-            name="q"
-            defaultValue={query.q}
-            placeholder="제목·내용·작성자 검색"
-            className="sm:w-56"
-            aria-label="검색어"
-          />
-          <Button type="submit" variant="outline" size="icon" aria-label="검색">
-            <SearchIcon />
-          </Button>
-        </form>
+        </div>
       </div>
 
-      <Card className="py-0">
-        <CardContent className="px-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="hidden w-16 text-center sm:table-cell">번호</TableHead>
-                <TableHead>제목</TableHead>
-                <TableHead className="hidden w-28 sm:table-cell">작성자</TableHead>
-                <TableHead className="w-24 text-center">작성일</TableHead>
-                <TableHead className="hidden w-16 text-center sm:table-cell">조회</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {posts.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground h-32 text-center">
-                    {query.q ? `"${query.q}"에 맞는 글이 없습니다.` : "아직 글이 없습니다."}
-                  </TableCell>
-                </TableRow>
-              )}
-              {posts.map((post) => (
-                <TableRow
-                  key={post.id}
-                  className={cn(post.category === "공지" && "bg-muted/50")}
-                >
-                  <TableCell className="text-muted-foreground hidden text-center sm:table-cell">
-                    {post.id}
-                  </TableCell>
-                  <TableCell className="max-w-0">
-                    <Link
-                      href={`/posts/${post.id}`}
-                      className="flex min-w-0 items-center gap-2 hover:underline"
+      {entries.length === 0 ? (
+        <p className="riso-card p-8 text-center text-muted-foreground">첫 번째 축하를 남겨 주세요!</p>
+      ) : (
+        <ul className="grid gap-6 sm:grid-cols-2">
+          {entries.map((entry) => (
+            <li key={entry.id} className="riso-card flex flex-col gap-3 p-5" data-ink={entry.id % 3}>
+              <p className="flex-1 text-[17px] leading-8 whitespace-pre-wrap">{entry.message}</p>
+              <div className="flex items-center gap-2 border-t-2 border-dashed border-current/15 pt-3">
+                <CostumeKid kind={COSTUME_KINDS[entry.id % COSTUME_KINDS.length]} size={30} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-heading text-lg">{entry.nickname}</span>
+                  <span className="ml-2 text-xs text-muted-foreground tabular-nums">{formatStamp(entry.createdAt)}</span>
+                </span>
+                <PasswordDialog
+                  action={deleteEntry.bind(null, entry.id)}
+                  title="축하글 지우기"
+                  description="글을 남길 때 정한 비밀번호를 적어 주세요."
+                  confirmLabel="지우기"
+                  trigger={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-full text-muted-foreground"
+                      aria-label={`${entry.nickname}님 글 지우기`}
                     >
-                      <CategoryBadge category={post.category} />
-                      <span className="truncate font-medium">{post.title}</span>
-                      {post.commentCount > 0 && (
-                        <span className="text-primary inline-flex shrink-0 items-center gap-0.5 text-xs">
-                          <MessageSquareIcon className="size-3" />
-                          {post.commentCount}
-                        </span>
-                      )}
-                    </Link>
-                    <span className="text-muted-foreground mt-1 block text-xs sm:hidden">
-                      {post.author} · 조회 {post.views}
-                    </span>
-                  </TableCell>
-                  <TableCell className="hidden truncate sm:table-cell">{post.author}</TableCell>
-                  <TableCell className="text-muted-foreground text-center text-xs">
-                    {formatListDate(post.createdAt)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden text-center text-xs sm:table-cell">
-                    {post.views}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                      <XIcon />
+                    </Button>
+                  }
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">총 {total}개</p>
-        {pageCount > 1 && (
-          <nav className="flex items-center gap-1" aria-label="페이지">
-            <PageLink href={href(query, { page: page - 1 })} disabled={page <= 1} label="이전 페이지">
-              <ChevronLeftIcon />
-            </PageLink>
-            {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
-              <Link
-                key={n}
-                href={href(query, { page: n })}
-                aria-current={n === page ? "page" : undefined}
-                className={buttonVariants({
-                  size: "icon-sm",
-                  variant: n === page ? "default" : "ghost",
-                })}
-              >
-                {n}
-              </Link>
-            ))}
-            <PageLink
-              href={href(query, { page: page + 1 })}
-              disabled={page >= pageCount}
-              label="다음 페이지"
-            >
-              <ChevronRightIcon />
-            </PageLink>
-          </nav>
-        )}
-      </div>
-    </div>
+      {pageCount > 1 && (
+        <nav className="flex items-center justify-center gap-4" aria-label="쪽">
+          <PageLink page={page - 1} disabled={page <= 1}>
+            ← 최신
+          </PageLink>
+          <span className="font-heading text-lg tabular-nums">
+            {page} / {pageCount}
+          </span>
+          <PageLink page={page + 1} disabled={page >= pageCount}>
+            이전 →
+          </PageLink>
+        </nav>
+      )}
+    </section>
   )
 }
 
-function PageLink({
-  href,
-  disabled,
-  label,
-  children,
-}: {
-  href: string
-  disabled: boolean
-  label: string
-  children: React.ReactNode
-}) {
-  const cls = buttonVariants({ size: "icon-sm", variant: "ghost" })
-  if (disabled)
-    return (
-      <span aria-disabled className={cn(cls, "pointer-events-none opacity-40")}>
-        {children}
-      </span>
-    )
+function PageLink({ page, disabled, children }: { page: number; disabled: boolean; children: React.ReactNode }) {
+  const cls = cn(buttonVariants({ variant: "outline" }), "print-btn h-10 bg-card px-5 font-heading text-base")
+  if (disabled) return <span className={cn(cls, "pointer-events-none opacity-40")}>{children}</span>
   return (
-    <Link href={href} aria-label={label} className={cls}>
+    <Link href={page > 1 ? `/?page=${page}` : "/"} className={cls}>
       {children}
     </Link>
   )
 }
 
-function BoardSkeleton() {
+function EntriesSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="bg-muted h-8 w-72 animate-pulse rounded-lg" />
-      <Card className="py-0">
-        <CardContent className="space-y-3 p-4">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="bg-muted h-6 animate-pulse rounded" />
-          ))}
-        </CardContent>
-      </Card>
+    <div className="grid gap-6 sm:grid-cols-2" aria-hidden>
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="riso-card h-32 animate-pulse opacity-50" data-ink={i % 3} />
+      ))}
     </div>
   )
 }

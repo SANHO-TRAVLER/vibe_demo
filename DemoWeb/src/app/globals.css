@@ -4,25 +4,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  몽글몽글한 동화책 리소 인쇄 디자인.
+  스카이 웨딩 게임(shooting.py)의 RISO_INKS 와 같은 네 잉크(핑크·옐로·하늘·초록)와 크림색 종이,
+  겹쳐 찍힌 색(코랄·보라·청록), 검정 대신 부드러운 남색 글씨만 쓴다.
+  모서리는 둥글게, 판은 살짝 어긋나게, 그러데이션은 둥근 망점으로.
+*/
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-body);
+  --font-heading: var(--font-title);
+  --color-ink-pink: var(--ink-pink);
+  --color-ink-yellow: var(--ink-yellow);
+  --color-ink-blue: var(--ink-blue);
+  --color-ink-green: var(--ink-green);
+  --color-ink-coral: var(--ink-coral);
+  --color-ink-purple: var(--ink-purple);
+  --color-ink-text: var(--ink-text);
+  --color-paper: var(--paper);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -39,92 +41,124 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-3xl: calc(var(--radius) * 2);
+  --radius-4xl: calc(var(--radius) * 2.4);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  /* 잉크와 종이 (게임과 같은 값) */
+  --paper: #f9f1e6;
+  --ink-pink: #ff8ac4;
+  --ink-yellow: #ffde54;
+  --ink-blue: #7eb4ea;
+  --ink-green: #56b476;
+  --ink-coral: #f9713f;   /* 핑크 + 옐로 */
+  --ink-purple: #7b5ca2;  /* 핑크 + 하늘 */
+  --ink-teal: #29785f;    /* 하늘 + 초록 */
+  --ink-text: #2e5470;    /* 글씨: 검정 대신 부드러운 남색 */
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--paper);
+  --foreground: var(--ink-text);
+  --card: #fffbf4;
+  --card-foreground: var(--ink-text);
+  --popover: #fffbf4;
+  --popover-foreground: var(--ink-text);
+  --primary: var(--ink-pink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ink-yellow);
+  --secondary-foreground: var(--ink-text);
+  --muted: #f3e6d6;
+  --muted-foreground: #6c7f93;
+  --accent: #ffe9a8;
+  --accent-foreground: var(--ink-text);
+  --destructive: var(--ink-coral);
+  --border: var(--ink-pink);
+  --input: var(--ink-blue);
+  --ring: var(--ink-pink);
+  --radius: 1rem;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    word-break: keep-all;       /* 한글은 낱말 단위로 줄바꿈 */
+    overflow-wrap: anywhere;
+    /* 종이 결: 고운 잡티 */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .6 0 0 0 0 .45 0 0 0 0 .35 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
+  }
+  ::selection {
+    background: var(--ink-yellow);
+    color: var(--ink-text);
+  }
+}
+
+@layer components {
+  /* 판이 어긋나게 찍힌 제목: 핑크 판 뒤로 옐로 판이 비껴 찍혀 가장자리만 보인다 (꽃 그림처럼) */
+  .misprint {
+    position: relative;
+    isolation: isolate;
+    color: var(--ink-pink);
+  }
+  .misprint::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    transform: translate(4px, 3px);
+    color: var(--ink-yellow);
+    pointer-events: none;
+  }
+
+  /* 동화책 카드: 둥근 종이 + 잉크 테두리 + 비껴 찍힌 다른 잉크 그림자 */
+  .riso-card {
+    background: var(--card);
+    border: 2.5px solid var(--ink-pink);
+    border-radius: 1.4rem;
+    box-shadow: 5px 5px 0 var(--ink-yellow);
+  }
+  .riso-card[data-ink="1"] {
+    border-color: var(--ink-blue);
+    box-shadow: 5px 5px 0 var(--ink-pink);
+  }
+  .riso-card[data-ink="2"] {
+    border-color: var(--ink-green);
+    box-shadow: 5px 5px 0 var(--ink-yellow);
+  }
+
+  /* 둥근 망점이 한쪽으로 스르르 옅어지는 띠 (꽃 그림의 잎 그림자처럼) */
+  .halftone {
+    background-image: radial-gradient(circle, var(--ink-pink) 2.2px, transparent 2.8px),
+      radial-gradient(circle, var(--ink-yellow) 2.2px, transparent 2.8px);
+    background-size: 10px 10px;
+    background-position: 0 0, 5px 5px;
+    mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+  }
+
+  /* 동그란 인쇄 버튼: 누르면 비껴 찍힌 그림자 쪽으로 쏙 */
+  .print-btn {
+    border-radius: 999px;
+    border: 2.5px solid var(--ink-text);
+    box-shadow: 3px 3px 0 var(--ink-yellow);
+    transition: transform 90ms ease, box-shadow 90ms ease;
+  }
+  .print-btn:active:not(:disabled) {
+    transform: translate(3px, 3px);
+    box-shadow: 0 0 0 var(--ink-yellow);
+  }
+
+  /* 종이에 찍힌 잉크 결: 그림 위에 덮어 잉크가 덜 묻은 자리를 낸다 */
+  .ink-grain {
+    filter: url(#ink-grain);
   }
 }

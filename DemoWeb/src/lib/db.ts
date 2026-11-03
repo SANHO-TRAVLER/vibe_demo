@@ -2,13 +2,10 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto"
 
 import { neon } from "@neondatabase/serverless"
 
-import type { Category } from "@/lib/categories"
-
-export { CATEGORIES, type Category } from "@/lib/categories"
-
-// 게시판 데이터는 Neon PostgreSQL에 저장한다. 연결 문자열은 DATABASE_URL
+// 방명록 데이터는 Neon PostgreSQL의 guestbook 테이블에 저장한다. 연결 문자열은 DATABASE_URL
 // (로컬은 .env.local, Vercel은 프로젝트 환경 변수).
 // 빌드 중에는 모듈만 읽고 쿼리는 하지 않으므로, 값 확인은 첫 쿼리 때 한다.
+// (예전 게시판 시절의 posts·comments 테이블은 더 쓰지 않지만 지우지 않고 그대로 둔다.)
 let client: ReturnType<typeof neon> | null = null
 
 function db() {
@@ -19,22 +16,14 @@ function db() {
   return client
 }
 
-export type Comment = {
-  id: string
-  author: string
-  content: string
-  createdAt: string
-}
+export const NICKNAME_MAX = 12
+export const MESSAGE_MAX = 100
 
-export type Post = {
+export type Entry = {
   id: number
-  category: Category
-  title: string
-  content: string
-  author: string
-  views: number
+  nickname: string
+  message: string
   createdAt: string
-  updatedAt: string
 }
 
 // 비밀번호는 salt를 붙인 scrypt 해시("salt:hash")로만 보관한다.
@@ -52,49 +41,33 @@ export function verifyPassword(password: string, stored: string) {
   return timingSafeEqual(expected, actual)
 }
 
-// 처음 쓸 때 한 번 테이블을 만들고, 글이 하나도 없으면 샘플 글을 넣는다.
+// 처음 쓸 때 한 번 테이블을 만들고, 글이 하나도 없으면 예시 축하글을 넣는다.
 // 개발 서버는 여러 곳에서 동시에 이 함수를 부를 수 있으므로, 잠금을 건 한 트랜잭션 안에서 한다.
 async function setup() {
-  const samples: Array<[Category, string, string, string]> = [
-    ["공지", "게시판 이용 안내", "글을 쓸 때 정한 비밀번호로 수정·삭제할 수 있습니다.\n샘플 글의 비밀번호는 1234 입니다.", "운영자"],
-    ["자유", "첫 글 남겨봅니다", "새 게시판이 열렸네요. 다들 반갑습니다!", "산호"],
-    ["질문", "Next.js 16에서 캐시는 어떻게 동작하나요?", "cacheComponents 옵션을 켜면 무엇이 달라지는지 궁금합니다.", "궁금이"],
-    ["정보", "shadcn/ui 컴포넌트 추가하는 법", "npx shadcn@latest add button 처럼 필요한 컴포넌트만 골라 넣으면 됩니다.", "개발자"],
+  const samples: Array<[string, string]> = [
+    ["신랑친구", "결혼 축하해!! 하늘에서 손잡은 것처럼 평생 꼭 붙어 다녀라 ♥"],
+    ["신부동생", "언니 너무 예쁘다... 행복하게 잘 살아야 해!"],
+    ["회사동기", "두 분의 앞날에 꽃길만 가득하길! 축하드립니다 ★"],
   ]
-  const col = (i: number) => samples.map((s) => s[i])
-  const times = samples.map((_, i) => new Date(Date.now() - (samples.length - i) * 90 * 60_000).toISOString())
+  const times = samples.map((_, i) => new Date(Date.now() - (samples.length - i) * 30 * 60_000).toISOString())
   const raw = db()
 
   await raw.transaction([
     raw`SELECT pg_advisory_xact_lock(20261103)`,
     raw`
-      CREATE TABLE IF NOT EXISTS posts (
+      CREATE TABLE IF NOT EXISTS guestbook (
         id            serial PRIMARY KEY,
-        category      text NOT NULL,
-        title         text NOT NULL,
-        content       text NOT NULL,
-        author        text NOT NULL,
-        password_hash text NOT NULL,
-        views         integer NOT NULL DEFAULT 0,
-        created_at    timestamptz NOT NULL DEFAULT now(),
-        updated_at    timestamptz NOT NULL DEFAULT now()
-      )`,
-    raw`
-      CREATE TABLE IF NOT EXISTS comments (
-        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        post_id       integer NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-        author        text NOT NULL,
-        content       text NOT NULL,
+        nickname      text NOT NULL,
+        message       text NOT NULL,
         password_hash text NOT NULL,
         created_at    timestamptz NOT NULL DEFAULT now()
       )`,
-    raw`CREATE INDEX IF NOT EXISTS comments_post_id_idx ON comments (post_id)`,
     raw`
-      INSERT INTO posts (category, title, content, author, password_hash, created_at, updated_at)
-      SELECT s.category, s.title, s.content, s.author, ${hashPassword("1234")}, s.at, s.at
-      FROM unnest(${col(0)}::text[], ${col(1)}::text[], ${col(2)}::text[], ${col(3)}::text[],
-                  ${times}::timestamptz[]) WITH ORDINALITY AS s(category, title, content, author, at, n)
-      WHERE NOT EXISTS (SELECT 1 FROM posts)
+      INSERT INTO guestbook (nickname, message, password_hash, created_at)
+      SELECT s.nickname, s.message, ${hashPassword("1234")}, s.at
+      FROM unnest(${samples.map((s) => s[0])}::text[], ${samples.map((s) => s[1])}::text[],
+                  ${times}::timestamptz[]) WITH ORDINALITY AS s(nickname, message, at, n)
+      WHERE NOT EXISTS (SELECT 1 FROM guestbook)
       ORDER BY s.n`,
   ])
 }
@@ -113,24 +86,11 @@ export async function sql(strings: TemplateStringsArray, ...values: unknown[]) {
 
 const iso = (v: unknown) => (v instanceof Date ? v : new Date(String(v))).toISOString()
 
-export function toPost(row: Record<string, unknown>): Post {
+export function toEntry(row: Record<string, unknown>): Entry {
   return {
     id: Number(row.id),
-    category: row.category as Category,
-    title: String(row.title),
-    content: String(row.content ?? ""),
-    author: String(row.author),
-    views: Number(row.views),
-    createdAt: iso(row.created_at),
-    updatedAt: iso(row.updated_at),
-  }
-}
-
-export function toComment(row: Record<string, unknown>): Comment {
-  return {
-    id: String(row.id),
-    author: String(row.author),
-    content: String(row.content),
+    nickname: String(row.nickname),
+    message: String(row.message),
     createdAt: iso(row.created_at),
   }
 }
