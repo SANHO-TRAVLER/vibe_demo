@@ -4,6 +4,7 @@ import { XIcon } from "lucide-react"
 
 import { COSTUME_KINDS, CostumeKid } from "@/components/costume-kid"
 import { GuestbookForm } from "@/components/guestbook-form"
+import { Hero } from "@/components/hero"
 import { PasswordDialog } from "@/components/password-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { deleteEntry } from "@/lib/actions"
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils"
 export default function Home(props: PageProps<"/">) {
   return (
     <div className="space-y-12">
+      <Hero />
       <GuestbookForm />
       <Suspense fallback={<EntriesSkeleton />}>
         <Entries searchParams={props.searchParams} />

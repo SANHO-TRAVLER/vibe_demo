@@ -22,6 +22,8 @@ Vercel에 올릴 때는 프로젝트 설정에서 Root Directory를 `DemoWeb`으
 - 한 쪽짜리 방명록: 닉네임(12자) · 축하의 말씀(100자, 글자 수 표시) · 비밀번호(지울 때 사용)
 - 최신 글부터 24개씩, 글이 많으면 쪽 넘김
 - 글쓴이가 비밀번호로 자기 글 지우기
+- **하객 입장 보기** (`/entrance`): 방명록 하객들이 동물 옷을 입고 와글와글 식장으로 들어간 뒤 신랑 신부가 입장하는 애니메이션. 글이 14개보다 적으면 이름 없는 하객으로 채운다
+- **게임 하기** (`/game/index.html`): 스카이 웨딩 게임을 휴대폰 브라우저에서 그대로 (아래 '웹 게임')
 
 ## 디자인
 
@@ -37,7 +39,10 @@ Vercel에 올릴 때는 프로젝트 설정에서 Root Directory를 `DemoWeb`으
 
 | 경로 | 내용 |
 |---|---|
-| `src/app/page.tsx` | 방명록 (작성 폼 + 글 목록) |
+| `src/app/page.tsx` | 방명록 (머리 `components/hero.tsx` + 작성 폼 + 글 목록) |
+| `src/app/entrance` | 하객 입장 애니메이션 (`components/entrance-scene.tsx`, 움직임은 `globals.css` 아래쪽 keyframes) |
+| `public/game/` | pygbag 으로 빌드한 웹 게임 (직접 고치지 말고 `npm run build:game` 으로 다시 만든다) |
+| `scripts/build-game.py` | `../shooting.py` + `../fonts/` 를 웹 게임으로 빌드 |
 | `src/app/api/posts` | 글 목록 JSON `{posts: [{id, title, author}]}` — 게임이 읽으므로 모양을 바꾸지 말 것 (`title`=축하의 말씀, `author`=닉네임) |
 | `src/components/guestbook-form.tsx` | 작성 폼 (글자 수 표시) |
 | `src/lib/db.ts` | Neon 연결, `guestbook` 테이블 생성·예시 글, 비밀번호 scrypt 해시 |
@@ -46,3 +51,16 @@ Vercel에 올릴 때는 프로젝트 설정에서 Root Directory를 `DemoWeb`으
 
 `guestbook` 테이블은 첫 요청 때 자동으로 만들어지고, 비어 있으면 예시 축하글 3개를 넣는다(비밀번호 `1234`).
 예전 게시판 시절의 `posts`·`comments` 테이블은 쓰지 않지만 DB에 그대로 남아 있다.
+
+## 웹 게임
+
+[pygbag](https://github.com/pygame-web/pygbag)이 파이썬+pygame 게임을 웹어셈블리로 바꾼다.
+
+```bash
+pip install pygbag
+npm run build:game     # ../shooting.py 를 고친 뒤마다. public/game/ 을 함께 커밋한다
+```
+
+- 파이썬·pygame 실행기는 실행 때 pygame-web CDN에서 받는다 (처음 열 때 몇 MB, 화면을 한 번 눌러야 시작).
+- 브라우저에선 numpy 를 불러오기만 해도 pygame 화면이 안 만들어진다. 그래서 웹판은 numpy 없이 `RisoLite`(망점 + 잉크 팔레트 + 종이 결, 판 어긋남 없음)를 쓰고, `shooting.py` 는 numpy 를 `importlib` 로 숨겨 불러온다(pygbag 이 import 문을 보고 미리 받아 버리므로).
+- 같은 사이트의 `/api/posts` 를 6초마다 받아 하객 말풍선을 띄운다.

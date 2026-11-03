@@ -162,3 +162,78 @@
     filter: url(#ink-grain);
   }
 }
+
+/* ===== 하객 입장 애니메이션 (/entrance) ===== */
+.walker {
+  left: var(--x0);
+  top: var(--y0);
+  opacity: 0;
+  translate: -50% -100%;
+  animation: walk-in var(--walk) ease-in-out var(--delay) both;
+}
+.walker-bob {
+  animation: bob var(--bob, 0.34s) ease-in-out infinite alternate;
+}
+.walker-bubble {
+  opacity: 0;
+  animation: bubble-pop var(--walk) ease-out var(--delay) both;
+}
+@keyframes walk-in {
+  0% { left: var(--x0); top: var(--y0); scale: 1; opacity: 1; }
+  80% { left: var(--x1); top: var(--y1); scale: 0.72; opacity: 1; }
+  100% { left: var(--x1); top: calc(var(--y1) - 3%); scale: 0.5; opacity: 0; }
+}
+@keyframes bob {
+  from { translate: 0 0; rotate: -3deg; }
+  to { translate: 0 -7px; rotate: 3deg; }
+}
+@keyframes bubble-pop {
+  0%, 22% { opacity: 0; scale: 0.4; }
+  28% { opacity: 1; scale: 1.12; }
+  32%, 62% { opacity: 1; scale: 1; }
+  70%, 100% { opacity: 0; scale: 0.8; }
+}
+
+.couple-walk {
+  top: 140%;      /* 차례가 오기 전에는 장면 아래에 완전히 숨어 있는다 */
+  translate: -50% -100%;
+  animation: couple-in 4s ease-in-out var(--couple-at) both;
+}
+@keyframes couple-in {
+  0% { top: 140%; scale: 1.15; }
+  100% { top: 52%; scale: 0.9; }
+}
+.couple-banner {
+  opacity: 0;
+  animation: banner-pop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) var(--couple-at) both;
+}
+@keyframes banner-pop {
+  from { opacity: 0; scale: 0.3; }
+  to { opacity: 1; scale: 1; }
+}
+.heart {
+  opacity: 0;
+  translate: -50% -50%;
+  animation: heart-burst 1.6s ease-out calc(var(--couple-at) + 3.8s + var(--hd)) both;
+}
+@keyframes heart-burst {
+  0% { opacity: 0; translate: -50% -50%; scale: 0.3; }
+  15% { opacity: 1; }
+  100% { opacity: 0; translate: calc(-50% + var(--hx)) calc(-50% + var(--hy)); scale: 1.3; }
+}
+.entrance-end {
+  opacity: 0;
+  animation: end-in 0.6s ease-out var(--end-at) both;
+}
+@keyframes end-in {
+  from { opacity: 0; translate: 0 12px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+/* 움직임을 줄이고 싶은 사람에게는 마지막 장면만 보여 준다 */
+@media (prefers-reduced-motion: reduce) {
+  .walker, .walker-bubble, .heart { display: none; }
+  .couple-walk { animation: none; top: 52%; }
+  .couple-banner, .entrance-end { animation: none; opacity: 1; }
+  .walker-bob { animation: none; }
+}

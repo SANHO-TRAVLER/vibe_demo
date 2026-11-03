@@ -11,8 +11,13 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
 신랑은 곰 옷, 신부는 토끼 옷, 주례 선생님은 양 옷을 입었습니다.
 글꼴은 fonts/ 의 주아(Jua, SIL OFL)를 쓰고, 없으면 시스템 글꼴을 씁니다.
 
+웹(휴대폰)판
+  DemoWeb 방명록의 "게임 하기" 버튼으로 브라우저에서도 돌아갑니다. pygbag 이 이 파일을 웹어셈블리로
+  바꾸며(DemoWeb: npm run build:game → public/game/), 웹판은 numpy 대신 가벼운 RisoLite 효과를 씁니다.
+  휴대폰에선 화면을 누른 채 끌어서 이동하고, 화면을 누르면 시작합니다.
+
 조작
-  방향키 / WASD : 이동
+  방향키 / WASD : 이동 (화면을 누른 채 끌어도 됨)
   M             : 소리 켜기/끄기
   R             : 리소 인쇄 효과 켜기/끄기
   Enter         : 시작 / 엔딩 후 처음으로
@@ -31,6 +36,8 @@ pygame만 있으면 되고, 그림과 소리는 모두 코드로 만들어 냅�
   해당 하객이 폴짝 뛰며 NEW 말풍선을 띄웁니다. 게시판 웹 서버가 켜져 있어야 하며,
   꺼져 있으면 말풍선 없이 그대로 진행됩니다.
 """
+import asyncio
+import importlib
 import json
 import math
 import os
@@ -44,10 +51,6 @@ from pathlib import Path
 
 import pygame
 
-try:
-    import numpy as np      # 리소 인쇄 효과용 (없으면 효과 없이 실행)
-except ImportError:
-    np = None
 
 # ===== 기본 설정 =====
 W, H = 480, 720
@@ -57,6 +60,16 @@ SCROLL = 1.4               # 하늘 장면 지면 스크롤 속도
 FLOOR = 520                # 결혼식장 바닥(발) 높이
 OFFICIANT_CHANCE = 0.12    # 주례 선생님이 부케를 받을 확률 (이스터에그)
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
+IS_WEB = sys.platform == "emscripten"   # pygbag 으로 브라우저에서 돌아가는 중 (DemoWeb /game)
+
+# 리소 인쇄 효과용 numpy (컴퓨터에서만). 브라우저(pygbag)에선 numpy 를 불러오기만 해도 pygame 화면이
+# 안 만들어지므로 쓰지 않고 RisoLite 를 쓴다. pygbag 은 코드 속 import 문을 보고 패키지를 미리 받으니
+# 문자열로 불러와 눈에 띄지 않게 한다.
+try:
+    np = None if IS_WEB else importlib.import_module("numpy")
+except ImportError:
+    np = None
+TOUCH_LIFT = 70            # 터치로 움직일 때 신랑 신부가 손가락보다 이만큼 위에 오게(px)
 
 # ===== 리소 인쇄 (몽글몽글 동화책) =====
 RISO_PAPER = (249, 241, 230)           # 크림색 종이
@@ -74,6 +87,7 @@ RISO_SPREAD = 40                       # 망점 세기. 작을수록 단색 면�
 # DemoWeb 게시판 글 목록 API (다른 주소면 환경 변수 DEMOWEB_URL 로 바꾼다)
 BOARD_URL = os.environ.get("DEMOWEB_URL", "http://localhost:3000").rstrip("/") + "/api/posts"
 BOARD_POLL_SEC = 2.0       # 웹 서버에서 글 목록을 다시 받아 오는 간격(초)
+BOARD_POLL_SEC_WEB = 6.0   # 웹판은 받아 오는 동안 화면이 잠깐 멈추므로 더 드물게
 BOARD_POLL = 60            # 받아 둔 목록을 게임에 반영하는 간격(프레임)
 # 글 번호 → 하객 자리. 연달아 쓴 글이 앞뒤 줄로 고루 퍼지도록 섞어 둔 순서
 SEAT_ORDER = [4, 12, 1, 9, 7, 14, 2, 10, 5, 13, 0, 8, 6, 15, 3, 11]
@@ -790,11 +804,18 @@ class SkyPhase:
             self.update_descent()
             return
 
-        # 이동
+        # 이동: 방향키, 또는 화면을 누른 채 끌면(터치·마우스) 손가락 쪽으로
         dx = (keys[pygame.K_RIGHT] or keys[pygame.K_d]) - (keys[pygame.K_LEFT] or keys[pygame.K_a])
         dy = (keys[pygame.K_DOWN] or keys[pygame.K_s]) - (keys[pygame.K_UP] or keys[pygame.K_w])
         if dx and dy:
             dx, dy = dx * 0.7071, dy * 0.7071
+        if not (dx or dy) and pygame.mouse.get_pressed()[0]:
+            mx, my = pygame.mouse.get_pos()
+            tx, ty = mx - self.x, my - TOUCH_LIFT - self.y     # 손가락에 가리지 않게 조금 위로
+            dist = math.hypot(tx, ty)
+            if dist > 6:
+                k = min(1.0, dist / 40) / dist                 # 가까우면 천천히 멈춘다
+                dx, dy = tx * k, ty * k
         speed = 1.2 if self.tumble else 4.2
         self.x = min(max(self.x + dx * speed, 60), W - 60)
         self.y = min(max(self.y + dy * speed, 120), H - 60)
@@ -1341,29 +1362,45 @@ class MiniHeart:
 
 class Board:
     """DemoWeb 게시판 글 목록을 웹 서버(/api/posts)에서 받아 온다.
-    네트워크가 화면을 멈추지 않도록 받아 오기는 뒤쪽 스레드가 BOARD_POLL_SEC 마다 한다."""
+    컴퓨터에선 화면이 멈추지 않도록 뒤쪽 스레드가 BOARD_POLL_SEC 마다 받아 온다.
+    웹(브라우저)판은 스레드를 못 쓰므로 poll() 때 BOARD_POLL_SEC_WEB 마다 직접 받아 온다."""
     def __init__(self, url=BOARD_URL):
+        if IS_WEB:      # 방명록과 같은 사이트에서 돌아가므로 그 사이트의 /api/posts
+            url = str(__import__("platform").window.location.origin) + "/api/posts"
         self.url = url
         self.posts = {}         # 글 번호 → (제목, 작성자). 게임 쪽에서 본 마지막 목록
         self.loaded = False
-        self._latest = None     # 스레드가 받아 둔 최신 목록
+        self._latest = None     # 받아 둔 최신 목록
         self._lock = threading.Lock()
-        threading.Thread(target=self._fetch_loop, daemon=True).start()
+        self._next_fetch = 0.0
+        if not IS_WEB:
+            threading.Thread(target=self._fetch_loop, daemon=True).start()
+
+    def _fetch(self):
+        try:
+            if IS_WEB:  # pygbag 이 urlretrieve 를 브라우저 요청으로 바꿔 둔다
+                path, _ = urllib.request.urlretrieve(self.url)
+                with open(path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            else:
+                with urllib.request.urlopen(self.url, timeout=3) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+            posts = {int(p["id"]): (str(p["title"]), str(p["author"])) for p in data["posts"]}
+        except Exception:   # 서버가 꺼져 있거나 응답이 이상하면 말풍선 없이 그대로 진행
+            return
+        with self._lock:
+            self._latest = posts
 
     def _fetch_loop(self):
         while True:
-            try:
-                with urllib.request.urlopen(self.url, timeout=3) as res:
-                    data = json.loads(res.read().decode("utf-8"))
-                posts = {int(p["id"]): (str(p["title"]), str(p["author"])) for p in data["posts"]}
-                with self._lock:
-                    self._latest = posts
-            except (OSError, ValueError, KeyError, TypeError):
-                pass    # 서버가 꺼져 있으면 말풍선 없이 그대로 진행
+            self._fetch()
             time.sleep(BOARD_POLL_SEC)
 
     def poll(self):
         """(새로 생긴 글 번호 목록, 이번에 처음 받아 왔는지)를 돌려준다."""
+        if IS_WEB and time.time() >= self._next_fetch:
+            self._next_fetch = time.time() + BOARD_POLL_SEC_WEB
+            self._fetch()
         with self._lock:
             posts = self._latest
         if posts is None:
@@ -2117,7 +2154,7 @@ class Ceremony:
             lift = (1 - ease(age / 25)) * 12
             s.blit(img, img.get_rect(center=(x, y + lift)))
         if self.ending_t > len(self.arch) * 8 + 60 and (self.ending_t // 40) % 2 == 0:
-            g.text("Enter: 처음으로   ESC: 종료", g.small_font, WHITE, (W / 2, H - 22))
+            g.text("Enter 키나 화면을 누르면 처음으로", g.small_font, WHITE, (W / 2, H - 22))
 
 
 # ===================================================================
@@ -2196,6 +2233,65 @@ class Riso:
         pygame.surfarray.blit_array(dst, self.mapped[1].take(out).T)
 
 
+class RisoLite:
+    """numpy 없이(브라우저판) 쓰는 가벼운 리소 효과. pygame 의 C 연산만 쓴다.
+    1) 둥근 망점 무늬를 더하고 빼서 중간색을 점으로 풀고
+    2) 잉크 조합 색만 든 8비트 팔레트 화면에 옮겨 그려 색을 잉크로 고르고(가장 가까운 색)
+    3) 종이 결을 곱하기로 얹는다. 판 어긋남은 없다."""
+    TILE = 8                # 망점 무늬 한 칸(px). 45도로 기운 점이 TILE/√2 간격으로 찍힌다
+    SPREAD = 44
+
+    def __init__(self, size=(W, H)):
+        w, h = size
+        colors = []
+        for bits in Riso.COMBOS:
+            c = list(RISO_PAPER)
+            for i, (_, ink, _, _) in enumerate(RISO_INKS):
+                if bits >> i & 1:
+                    c = [v * k / 255 for v, k in zip(c, ink)]
+            colors.append(tuple(int(v) for v in c))
+        self.pal = pygame.Surface(size, 0, 8)
+        self.pal.set_palette(colors + [RISO_PAPER] * (256 - len(colors)))
+        self.tmp = pygame.Surface(size)
+
+        # 망점 무늬: 문턱값보다 밝으면 더하고(plus) 어두우면 뺀다(minus)
+        t = self.TILE
+        plus, minus = pygame.Surface((t, t)), pygame.Surface((t, t))
+        for y in range(t):
+            for x in range(t):
+                d = (math.cos(math.pi * (x + y) * 2 / t) + math.cos(math.pi * (y - x) * 2 / t)) / 4
+                v = int(d * self.SPREAD)
+                plus.set_at((x, y), (max(0, v),) * 3)
+                minus.set_at((x, y), (max(0, -v),) * 3)
+        self.plus, self.minus = self.tiled(plus, size), self.tiled(minus, size)
+
+        # 종이 결: 64px 무늬를 깔아 곱한다 (대부분 흰색, 드문드문 옅은 얼룩)
+        rng = random.Random(20261103)
+        grain = pygame.Surface((64, 64))
+        grain.fill((255, 255, 255))
+        for _ in range(64 * 64 // 18):
+            g = rng.randint(222, 245)
+            grain.set_at((rng.randrange(64), rng.randrange(64)), (g, g - 6, g - 14))
+        self.grain = self.tiled(grain, size)
+
+    @staticmethod
+    def tiled(tile, size):
+        out = pygame.Surface(size)
+        tw, th = tile.get_size()
+        for y in range(0, size[1], th):
+            for x in range(0, size[0], tw):
+                out.blit(tile, (x, y))
+        return out
+
+    def apply(self, src, dst):
+        self.tmp.blit(src, (0, 0))
+        self.tmp.blit(self.plus, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        self.tmp.blit(self.minus, (0, 0), special_flags=pygame.BLEND_RGB_SUB)
+        self.pal.blit(self.tmp, (0, 0))          # 팔레트에서 가장 가까운 잉크 색으로
+        dst.blit(self.pal, (0, 0))
+        dst.blit(self.grain, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+
 # ===================================================================
 # 게임 본체
 # ===================================================================
@@ -2206,7 +2302,7 @@ class Game:
         pygame.display.set_caption("스카이 웨딩")
         self.display = pygame.display.set_mode((W, H))
         self.screen = pygame.Surface((W, H))     # 여기에 그린 뒤 present()에서 인쇄 효과를 입혀 내보낸다
-        self.riso = Riso() if np is not None else None
+        self.riso = Riso() if np is not None else RisoLite()
         self.riso_on = True
         self.clock = pygame.time.Clock()
         self.tiny_font = load_font(12, bold=True)
@@ -2279,8 +2375,8 @@ class Game:
                  "하트, 편지, 반지, 예복, 웨딩드레스, 일렉기타,",
                  "데이지 부케 7가지를 모아 결혼식장으로!",
                  "반짝이 별은 보너스, 새 떼는 피해 주세요.",
-                 "",
-                 "방향키/WASD: 이동    M: 소리    R: 인쇄 효과"]
+                 "방향키, 또는 화면을 손가락으로 끌어서 이동",
+                 "M: 소리 켜기/끄기    R: 인쇄 효과"]
         # 설명은 둥근 종이 카드에 남색 잉크로 (망점 배경 위 작은 글씨는 읽기 어렵다)
         card = pygame.Rect(0, 0, 400, 186)
         card.center = (W / 2, 262 + 2.5 * 28)
@@ -2292,28 +2388,35 @@ class Game:
                 img = self.small_font.render(line, True, INK_TEXT)
                 s.blit(img, img.get_rect(center=(W / 2, 262 + i * 28)))
         if (self.tick // 30) % 2 == 0:
-            self.text("Enter 키를 눌러 시작", self.mid_font, YELLOW, (W / 2, 470))
+            self.text("Enter 키나 화면을 눌러 시작", self.mid_font, YELLOW, (W / 2, 470))
 
-    def run(self):
+    def press_start(self):
+        """Enter 키나 화면 터치: 타이틀에선 시작, 엔딩에선 처음으로"""
+        if self.state == "title":
+            self.start_sky()
+        elif self.state == "ceremony" and self.ceremony.ending_t > 200:
+            self.audio.stop_music(300)
+            self.state = "title"
+            self.sky = SkyPhase(self, demo=True)
+
+    async def run(self):
+        # 웹(pygbag)에서도 돌도록 매 프레임 끝에 브라우저에 차례를 넘긴다 (await asyncio.sleep(0))
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return
+                if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) == 1:
+                    self.press_start()
                 if event.type != pygame.KEYDOWN:
                     continue
-                if event.key == pygame.K_ESCAPE:
+                if event.key == pygame.K_ESCAPE and not IS_WEB:
                     return
                 if event.key == pygame.K_m:
                     self.audio.toggle_mute()
                 if event.key == pygame.K_r:
                     self.riso_on = not self.riso_on
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    if self.state == "title":
-                        self.start_sky()
-                    elif self.state == "ceremony" and self.ceremony.ending_t > 200:
-                        self.audio.stop_music(300)
-                        self.state = "title"
-                        self.sky = SkyPhase(self, demo=True)
+                    self.press_start()
 
             keys = pygame.key.get_pressed()
             if self.state == "title":
@@ -2333,9 +2436,13 @@ class Game:
             self.present()
             self.clock.tick(FPS)
             self.tick += 1
+            await asyncio.sleep(0)
+
+
+async def main():
+    await Game().run()
+    pygame.quit()
 
 
 if __name__ == "__main__":
-    Game().run()
-    pygame.quit()
-    sys.exit()
+    asyncio.run(main())

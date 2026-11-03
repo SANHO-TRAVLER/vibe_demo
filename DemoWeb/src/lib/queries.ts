@@ -19,6 +19,16 @@ export async function listEntries(page = 1) {
   return { entries, total: Number(total), page: current, pageCount }
 }
 
+// 하객 입장 애니메이션(/entrance)에 나올 하객: 최근 글 24개를 먼저 쓴 순서대로
+export async function listEntrance(limit = 24) {
+  await connection()
+  const rows = await sql`
+    SELECT id, nickname, message FROM (
+      SELECT id, nickname, message FROM guestbook ORDER BY id DESC LIMIT ${limit}
+    ) recent ORDER BY id`
+  return rows.map((r) => ({ id: Number(r.id), nickname: String(r.nickname), message: String(r.message) }))
+}
+
 // 스카이 웨딩 게임(shooting.py)이 하객 말풍선에 쓰는 목록.
 // 게임이 읽는 모양({ id, title, author })은 그대로 두고, 축하 한마디를 title 로 보낸다.
 export async function listPostTitles() {
