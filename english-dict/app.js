@@ -52,7 +52,6 @@ function updateCount() { $("#sbCount").textContent = `단어장 ${book.length}`;
 function showView(v) {
   $$(".view").forEach((el) => el.classList.toggle("on", el.id === "view-" + v));
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
-  $$(".key.f").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   $("#sbMode").textContent = VIEW_LABEL[v];
   state.view = v;
   if (v === "pron") renderPronTarget();
@@ -114,8 +113,17 @@ async function findLemma(word) {
 }
 
 /* Free Dictionary: 영영 뜻 · 발음기호 · 원어민 녹음 */
+// 서버가 오류를 내면(가끔 멈춤) 이번 세션은 더 부르지 않고 위키낱말사전만 쓴다
+let freeDictDown = false;
 async function freeDict(word) {
-  const j = await getJSON(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+  if (freeDictDown) return null;
+  const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
+  if (!cache.has(url)) {
+    cache.set(url, fetch(url, { signal: AbortSignal.timeout(8000) })
+      .then((r) => (r.ok ? r.json() : r.status === 404 ? null : Promise.reject(new Error(r.status))))
+      .catch(() => { freeDictDown = true; return null; }));
+  }
+  const j = await cache.get(url);
   if (!Array.isArray(j)) return null;
   const phon = j.flatMap((e) => e.phonetics || []);
   const audio = (phon.find((p) => /-us\.mp3$/.test(p.audio || "")) || phon.find((p) => p.audio) || {}).audio || "";
@@ -128,6 +136,22 @@ async function freeDict(word) {
 }
 
 /* Wiktionary 위키텍스트 */
+// 발음기호(미국식 우선)와 원어민 녹음 파일
+async function wiktPron(word) {
+  const en = section(await wikitext("en.wiktionary.org", word), /(?:^|\n)(==)English==/);
+  const lines = en.split("\n").filter((l) => /\{\{IPA\|en\|/.test(l));
+  const pick = lines.find((l) => /\b(GA|US|GenAm)\b/.test(l)) || lines[0] || "";
+  const ipa = ((pick.match(/\{\{IPA\|en\|([^|}]+)/) || [])[1] || "").trim();
+  const files = [...en.matchAll(/\{\{audio\|en\|([^|}]+)/g)].map((m) => m[1].trim());
+  const file = files.find((f) => /us/i.test(f)) || files[0];
+  return { ipa, audio: file ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}` : "" };
+}
+async function pronOf(word) {
+  const fd = await freeDict(word);
+  if (fd?.ipa && fd?.audio) return { ipa: fd.ipa, audio: fd.audio };
+  const wp = await wiktPron(word);
+  return { ipa: fd?.ipa || wp.ipa, audio: fd?.audio || wp.audio };
+}
 async function wikitext(host, page) {
   const j = await getJSON(`https://${host}/w/api.php?action=parse&page=${encodeURIComponent(page)}&prop=wikitext&format=json&formatversion=2&redirects=1&origin=*`);
   return j?.parse?.wikitext || "";
@@ -679,6 +703,7 @@ async function lookup(mark) {
     }))).filter((d) => d.definition).slice(0, 7);
   }
   const en_ko = await koreanOf(lemma, ety.english);
+  const pr = fd?.ipa && fd?.audio ? fd : await wiktPron(lemma);
 
   // 뜻풀이 한국어 번역 (내장 번역기가 있을 때만)
   if (await onDeviceTranslator()) {
@@ -687,7 +712,7 @@ async function lookup(mark) {
   return {
     id: mark.id, target: mark.text, lemma, note,
     pos: [...new Set(en_en.map((d) => posKo(d.pos)))].slice(0, 2).join(" · "),
-    ipa: fd?.ipa || "", audio: fd?.audio || "",
+    ipa: fd?.ipa || pr.ipa || "", audio: fd?.audio || pr.audio || "",
     en_en: en_en.map((d) => ({ pos: d.pos, definition: d.definition, example: d.example, ko: d.ko || "" })),
     en_ko,
     etymology: { text: ety.text, chain: ety.chain, parts: ety.parts, source: ety.source },
@@ -925,7 +950,7 @@ function detailHTML(it, mark, sentence, canSave) {
 // 판정 · 뜻 고르기 · 소리 · 저장 (해설 화면과 단어장 공통)
 function onDetailClick(e, getItem, onChange) {
   const au = e.target.closest("[data-audio]");
-  if (au) return new Audio(au.dataset.audio).play().catch(() => toast("녹음을 재생하지 못했어요", true));
+  if (au) return playAudio(au.dataset.audio);
   const say = e.target.closest("[data-say]");
   if (say) return speak(say.dataset.say, +say.dataset.rate);
   const it = getItem();
@@ -1005,8 +1030,29 @@ function speak(text, rate = 0.9, onBoundary, onEnd) {
   u.lang = v?.lang || "en-US";
   u.rate = rate;
   if (onBoundary) u.onboundary = onBoundary;
-  u.onend = u.onerror = () => onEnd?.();
+  let began = 0;
+  u.onstart = () => { began = performance.now(); };
+  u.onend = () => {
+    // 원어민 문장 길이(1배속 기준)를 재 두면 말 빠르기 비교에 쓴다
+    if (began && text === pronText()) nativeTiming = { text, sec: ((performance.now() - began) / 1000) * rate };
+    onEnd?.();
+  };
+  u.onerror = () => onEnd?.();
   speechSynthesis.speak(u);
+}
+
+let nativeTiming = null;   // {text, sec}
+let playing = null;        // 지금 재생 중인 내 녹음·원어민 녹음
+function playAudio(url, onEnd) {
+  stopAll();
+  playing = new Audio(url);
+  playing.onended = () => { playing = null; onEnd?.(); };
+  playing.play().catch(() => toast("녹음을 재생하지 못했어요", true));
+}
+function stopAll() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (playing) { playing.onended = null; playing.pause(); playing = null; }
+  $$("#pronTarget .w.speaking").forEach((w) => w.classList.remove("speaking"));
 }
 
 /* ───────── 3. 발음 교정 ───────── */
@@ -1058,7 +1104,8 @@ $("#btnPronEdit").onclick = () => {
   }
 };
 
-function listen() {
+function listen() { listenThen(); }
+function listenThen(after) {
   const text = pronText();
   if (!text) return toast("연습할 문장이 없어요", true);
   if (state.view !== "pron") showView("pron");
@@ -1067,22 +1114,38 @@ function listen() {
     if (ev.name && ev.name !== "word") return;
     words.forEach((w) => {
       const t = pronTokens[+w.dataset.i];
-      w.classList.toggle("speaking", ev.charIndex >= t.start && ev.charIndex < t.start + t.text.length);
+      const on = ev.charIndex >= t.start && ev.charIndex < t.start + t.text.length;
+      w.classList.toggle("speaking", on);
+      if (on) w.scrollIntoView({ block: "nearest" });   // 긴 문장은 읽는 곳을 따라 내려간다
     });
-  }, () => words.forEach((w) => w.classList.remove("speaking")));
+  }, () => { words.forEach((w) => w.classList.remove("speaking")); after?.(); });
 }
 $("#btnListen").onclick = listen;
+$("#btnStop").onclick = stopAll;
+$("#btnCompare").onclick = () => {
+  if (!mineUrl) return;
+  // 원어민 → 내 목소리를 이어서
+  listenThen(() => setTimeout(() => playAudio(mineUrl), 400));
+};
 
 /* 녹음 + 음성 인식 */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, recorder = null, recStream = null, recording = false;
 let finalText = "";
+// 브라우저 음성 인식은 말이 몇 초 끊기거나 1분쯤 지나면 혼자 끝난다.
+// 녹음은 사용자가 멈출 때까지 이어지도록, 인식이 끊기면 다시 켠다.
+// 멈추는 걸 잊었을 때를 대비해 3분마다 "아직 읽고 있나요?"를 묻고, 20초 동안 답이 없으면 끝낸다.
+const REC_CHECK_SEC = 180, REC_ANSWER_SEC = 20;
+let stopping = false, recFatal = false, recTimer = null, recStarted = 0, restarts = [];
+let nextCheck = REC_CHECK_SEC, askedAt = 0;
 
 function resetHeard() {
   $("#heard").innerHTML = '<span class="dim">녹음 버튼을 누르고 문장을 소리 내어 읽어 보세요. 다 읽으면 다시 눌러 멈춥니다.</span>';
   $("#extraWords").textContent = "";
   $("#pronScore").textContent = "";
   $("#btnCoach").disabled = true;
+  $("#prosody").hidden = true;
+  $("#stressBox").innerHTML = "";
 }
 
 async function toggleRec() {
@@ -1090,8 +1153,10 @@ async function toggleRec() {
   if (recording) return stopRec();
   if (!SR) return toast("이 브라우저는 음성 인식을 지원하지 않아요. Chrome 이나 Edge 로 열어 주세요.", true);
   if (!pronText()) return toast("연습할 문장이 없어요", true);
-  speechSynthesis.cancel();
+  stopAll();
   finalText = ""; lastDiff = null;
+  resetHeard();
+  rhythmFor(pronText());
   renderPronTarget(null);
 
   // 내 목소리 녹음 (다시 듣기용)
@@ -1102,9 +1167,12 @@ async function toggleRec() {
     recorder.ondataavailable = (e) => chunks.push(e.data);
     recorder.onstop = () => {
       if (mineUrl) URL.revokeObjectURL(mineUrl);
-      mineUrl = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType }));
+      const blob = new Blob(chunks, { type: recorder.mimeType });
+      mineUrl = URL.createObjectURL(blob);
       $("#btnPlayMine").disabled = false;
+      $("#btnCompare").disabled = false;
       recStream.getTracks().forEach((t) => t.stop());
+      runProsody(blob, pronText());
     };
     recorder.start();
   } catch {
@@ -1126,27 +1194,54 @@ async function toggleRec() {
     $("#heard").innerHTML = `${esc(finalText)}<span class="interim">${esc(interim)}</span>`;
   };
   rec.onerror = (e) => {
-    if (e.error === "no-speech") toast("소리가 안 들렸어요. 마이크를 확인해 주세요.", true);
-    else if (e.error === "not-allowed") toast("마이크 권한이 막혀 있어요.", true);
-    else if (e.error !== "aborted") toast("음성 인식 오류: " + e.error, true);
+    // 잠깐 조용한 건(no-speech) 녹음 중엔 정상이라 그냥 이어 듣는다
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { recFatal = true; toast("마이크 권한이 막혀 있어요.", true); }
+    else if (e.error === "audio-capture") { recFatal = true; toast("마이크를 찾지 못했어요.", true); }
+    else if (e.error === "network") { recFatal = true; toast("음성 인식에 인터넷 연결이 필요해요.", true); }
   };
-  rec.onend = () => { if (recording) finishRec(); };
+  rec.onend = () => {
+    if (!recording) return;
+    if (stopping || recFatal) return finishRec();
+    // 5초 안에 열 번 넘게 끊기면 인식이 고장 난 것으로 보고 끝낸다
+    const now = performance.now();
+    restarts = restarts.filter((t) => now - t < 5000).concat(now);
+    if (restarts.length > 10) return finishRec();
+    try { rec.start(); } catch { finishRec(); }
+  };
+  stopping = false; recFatal = false; restarts = [];
   rec.start();
   recording = true;
+  recStarted = performance.now();
   $("#btnRec").classList.add("on");
-  $("#btnRec").textContent = "■ 녹음 멈추기";
+  nextCheck = REC_CHECK_SEC; askedAt = 0;
+  const tick = () => {
+    const sec = Math.floor((performance.now() - recStarted) / 1000);
+    $("#btnRec").textContent = `■ 녹음 멈추기 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    if (!askedAt && sec >= nextCheck) { askedAt = sec; $("#recCheck").hidden = false; }
+    if (askedAt) {
+      const left = REC_ANSWER_SEC - (sec - askedAt);
+      $("#recCheckLeft").textContent = Math.max(0, left);
+      if (left <= 0) { toast("답이 없어서 녹음을 멈췄어요"); stopRec(); }
+    }
+  };
+  tick();
+  recTimer = setInterval(tick, 1000);
   $("#heard").innerHTML = '<span class="interim">듣고 있어요… 문장을 읽어 주세요.</span>';
   hint("다 읽었으면 [■ 녹음 멈추기] (또는 Alt+R)");
 }
 
 function stopRec() {
-  if (!recording) return;
-  rec.stop();           // onend 에서 finishRec
+  if (!recording || stopping) return;
+  stopping = true;
+  rec.stop();           // 남은 말을 마저 받은 뒤 onend 에서 finishRec
   setTimeout(() => recording && finishRec(), 1500);
 }
 
 function finishRec() {
   recording = false;
+  stopping = false;
+  clearInterval(recTimer);
+  $("#recCheck").hidden = true;
   try { rec.abort(); } catch {}
   if (recorder?.state === "recording") recorder.stop();
   $("#btnRec").classList.remove("on");
@@ -1195,7 +1290,380 @@ function diffWords(tks, heard) {
 }
 
 $("#btnRec").onclick = toggleRec;
-$("#btnPlayMine").onclick = () => { if (mineUrl) new Audio(mineUrl).play(); };
+$("#recKeep").onclick = () => {
+  const sec = Math.floor((performance.now() - recStarted) / 1000);
+  nextCheck = sec + REC_CHECK_SEC; askedAt = 0;
+  $("#recCheck").hidden = true;
+};
+$("#recStop").onclick = stopRec;
+$("#btnPlayMine").onclick = () => { if (mineUrl) playAudio(mineUrl); };
+
+/* ───────── 억양 · 강세 · 장음 분석 (내 컴퓨터에서 계산, 참고용 추정) ─────────
+   내 녹음에서 소리 크기와 목소리 높낮이를 10ms 단위로 재고, 크기가 솟는 곳을 음절로 본다.
+   사전 발음기호(ˈ 강세, ː 장음)로 만든 "기대 음절 줄"과 순서대로 맞춰 단어마다 강세·장음을 점검한다. */
+
+// 녹음 → 프레임별 크기(dB)와 높낮이(Hz)
+async function measureVoice(blob) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  const buf = await ac.decodeAudioData(await blob.arrayBuffer());
+  ac.close();
+  const raw = buf.getChannelData(0);
+  const step = Math.max(1, Math.round(buf.sampleRate / 16000));
+  const fs = buf.sampleRate / step;
+  const x = new Float32Array(Math.floor(raw.length / step));
+  for (let i = 0; i < x.length; i++) x[i] = raw[i * step];
+  const hop = Math.round(fs * 0.01), win = Math.round(fs * 0.04);
+  const minLag = Math.floor(fs / 400), maxLag = Math.ceil(fs / 70);
+  const frames = [];
+  for (let s = 0; s + win + maxLag < x.length; s += hop) {
+    let e = 0;
+    for (let i = 0; i < win; i++) e += x[s + i] * x[s + i];
+    const rms = Math.sqrt(e / win);
+    // 정규화 자기상관으로 높낮이 찾기
+    let best = 0, lag = 0;
+    if (rms > 0.003) {
+      const rs = new Float32Array(maxLag + 2);
+      for (let L = minLag; L <= maxLag; L++) {
+        let c = 0, e2 = 0;
+        for (let i = 0; i < win; i++) { c += x[s + i] * x[s + i + L]; e2 += x[s + i + L] * x[s + i + L]; }
+        rs[L] = c / Math.sqrt(e * e2 + 1e-12);
+        if (rs[L] > best) best = rs[L];
+      }
+      // 두 배 주기(한 옥타브 낮게)로 잘못 잡지 않도록, 충분히 센 첫 봉우리를 쓴다
+      for (let L = minLag + 1; L < maxLag; L++) {
+        if (rs[L] >= 0.88 * best && rs[L] >= rs[L - 1] && rs[L] >= rs[L + 1]) { lag = L; best = rs[L]; break; }
+      }
+    }
+    frames.push({ t: s / fs, db: 20 * Math.log10(rms + 1e-6), f0: best > 0.6 && lag ? fs / lag : 0 });
+  }
+  return frames;
+}
+
+// 말소리 구간만 남기고, 크기가 솟는 곳(음절 핵)을 찾는다
+function findSyllables(frames) {
+  const dbs = frames.map((f) => f.db).sort((a, b) => a - b);
+  const floor = dbs[Math.floor(dbs.length * 0.1)] ?? -60;
+  const peak = dbs[Math.floor(dbs.length * 0.98)] ?? 0;
+  const gate = Math.max(floor + 8, peak - 35);
+  const sm = frames.map((_, i) => {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, i - 3); k <= Math.min(frames.length - 1, i + 3); k++) { s += frames[k].db; n++; }
+    return s / n;
+  });
+  const a = sm.findIndex((v) => v > gate);
+  if (a < 0) return null;
+  const b = sm.length - 1 - [...sm].reverse().findIndex((v) => v > gate);
+  const nuclei = [];
+  for (let i = a + 1; i < b; i++) {
+    if (sm[i] < gate || sm[i] < sm[i - 1] || sm[i] < sm[i + 1]) continue;
+    // 양옆 골짜기보다 2.5dB 이상 솟아야 음절로 본다
+    let l = i, r = i;
+    while (l > a && sm[l - 1] <= sm[l] + 0.3 && i - l < 40) l--;
+    while (r < b && sm[r + 1] <= sm[r] + 0.3 && r - i < 40) r++;
+    const prom = sm[i] - Math.max(sm[l], sm[r]);
+    if (prom < 2.5) continue;
+    const prev = nuclei[nuclei.length - 1];
+    if (prev && i - prev.i < 10) { if (sm[i] > prev.db) nuclei.pop(); else continue; }
+    // 길이: 봉우리에서 6dB 안쪽으로 이어진 구간
+    let s = i, e = i;
+    while (s > a && sm[s - 1] > sm[i] - 6) s--;
+    while (e < b && sm[e + 1] > sm[i] - 6) e++;
+    const f0s = frames.slice(s, e + 1).map((f) => f.f0).filter(Boolean).sort((x, y) => x - y);
+    nuclei.push({ i, t: frames[i].t, db: sm[i], dur: (e - s + 1) * 0.01, f0: f0s.length ? f0s[f0s.length >> 1] : 0 });
+  }
+  return { nuclei, start: frames[a].t, end: frames[b].t, a, b };
+}
+
+// 발음기호 → 음절 [{stress: 0|1|2, long}]
+const IPA_V = "aeiouæɑɒɔəɛɜɪʊʌɐɚɝɘɵøœyʏɨʉ";
+function ipaSyllables(ipa) {
+  const s = (ipa || "").replace(/[\/\[\]]/g, "").split(/[,;]/)[0].trim();
+  const out = [];
+  let pend = 0, cur = null;
+  for (const ch of s) {
+    if (ch === "ˈ") { pend = 1; cur = null; continue; }
+    if (ch === "ˌ") { pend = pend || 2; cur = null; continue; }
+    if (IPA_V.includes(ch)) {
+      if (cur) { cur.v += ch; continue; }
+      cur = { v: ch, stress: pend, long: false };
+      out.push(cur); pend = 0;
+    } else if (ch === "ː") { if (cur) cur.long = true; }
+    else if (ch === "̩") { out.push({ v: "", stress: pend, long: false }); pend = 0; cur = null; }
+    else if (!/[̀-ͯ.]/.test(ch)) cur = null;
+  }
+  for (const x of out) if (x.v.length >= 2 && !/^[ɪə]/.test(x.v)) x.long = true;   // 이중모음(eɪ, aɪ, oʊ…)은 길게
+  return out;
+}
+function spellingSyllables(word) {
+  const w = word.toLowerCase().replace(/e$/, "");
+  return Math.max(1, (w.match(/[aeiouy]+/g) || []).length);
+}
+
+// 문장 단어마다 기대 음절 줄
+async function expectedRhythm(text) {
+  const words = tokenize(text).filter((t) => t.type === "w").map((t) => t.text);
+  const uniq = [...new Set(words.map((w) => w.toLowerCase()))].filter((w) => !FUNCTION_WORDS.has(w)).slice(0, 40);
+  const ipa = {};
+  await Promise.all(uniq.map(async (w) => { ipa[w] = (await pronOf(w)).ipa; }));
+  return words.map((w) => {
+    const lw = w.toLowerCase();
+    const func = FUNCTION_WORDS.has(lw);
+    let syl = ipaSyllables(ipa[lw]);
+    if (!syl.length) syl = Array.from({ length: spellingSyllables(w) }, () => ({ v: "", stress: 0, long: false }));
+    if (!syl.some((x) => x.stress === 1) && !func) syl[0].stress = 1;   // 단음절 내용어는 그 음절이 강세
+    if (func) syl.forEach((x) => { x.stress = 0; });
+    return { word: w, ipa: ipa[lw], func, syl };
+  });
+}
+
+// 사전 찾기가 몇 초 걸려서, 녹음을 시작할 때 미리 찾아 둔다
+let rhythmCache = null;
+function rhythmFor(text) {
+  if (rhythmCache?.text !== text) rhythmCache = { text, p: expectedRhythm(text) };
+  return rhythmCache.p;
+}
+
+// 기대 음절과 들린 음절을 순서·시간 비율로 맞춘다 (건너뛰기 허용)
+function alignSyllables(exp, det, t0, T) {
+  const E = exp.length, D = det.length;
+  const pe = exp.map((_, i) => (E > 1 ? i / (E - 1) : 0.5));
+  const pd = det.map((d) => (T > 0 ? (d.t - t0) / T : 0.5));
+  const SKIP = 0.18;
+  const C = Array.from({ length: E + 1 }, () => new Float64Array(D + 1).fill(Infinity));
+  const P = Array.from({ length: E + 1 }, () => new Int8Array(D + 1));
+  C[0][0] = 0;
+  for (let i = 0; i <= E; i++) for (let j = 0; j <= D; j++) {
+    if (i && j && C[i - 1][j - 1] + Math.abs(pe[i - 1] - pd[j - 1]) < C[i][j]) { C[i][j] = C[i - 1][j - 1] + Math.abs(pe[i - 1] - pd[j - 1]); P[i][j] = 1; }
+    if (i && C[i - 1][j] + SKIP < C[i][j]) { C[i][j] = C[i - 1][j] + SKIP; P[i][j] = 2; }
+    if (j && C[i][j - 1] + SKIP < C[i][j]) { C[i][j] = C[i][j - 1] + SKIP; P[i][j] = 3; }
+  }
+  const map = new Array(E).fill(-1);
+  let i = E, j = D;
+  while (i || j) {
+    if (P[i][j] === 1) { map[i - 1] = j - 1; i--; j--; }
+    else if (P[i][j] === 2) i--;
+    else j--;
+  }
+  return map;
+}
+
+const zs = (arr) => {
+  const v = arr.filter((x) => x > 0);
+  const m = v.reduce((s, x) => s + x, 0) / (v.length || 1);
+  const sd = Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / (v.length || 1)) || 1;
+  return arr.map((x) => (x > 0 ? (x - m) / sd : 0));
+};
+const semi = (f, ref) => 12 * Math.log2(f / ref);
+
+let lastProsody = null;
+async function runProsody(blob, text) {
+  showProsodyNote("억양·강세를 분석하는 중이에요…");
+  try {
+    const frames = await measureVoice(blob);
+    const found = findSyllables(frames);
+    if (!found || found.nuclei.length < 2) return showProsodyNote("목소리를 충분히 듣지 못해서 억양 분석을 건너뛰었어요. 조용한 곳에서 조금 더 크게 읽어 보세요.");
+    const exp = await rhythmFor(text);
+    lastProsody = analyzeProsody(frames, found, exp, text);
+    renderProsody(lastProsody);
+  } catch {
+    showProsodyNote("녹음을 분석하지 못했어요. 다시 녹음해 보세요.");
+  }
+}
+function showProsodyNote(msg) {
+  $("#prosody").hidden = false;
+  $("#prosodyCards").innerHTML = `<div class="pcard info"><p>${esc(msg)}</p></div>`;
+  $("#prosodyChart").hidden = true;
+}
+
+function analyzeProsody(frames, found, exp, text) {
+  const { nuclei, start, end } = found;
+  const T = end - start;
+  const voiced = frames.filter((f) => f.f0 && f.t >= start && f.t <= end);
+  const f0s = voiced.map((f) => f.f0).sort((a, b) => a - b);
+  const med = f0s[f0s.length >> 1] || 150;
+  const cards = [];
+
+  // ① 문장 끝 억양
+  const last = (text.trim().match(/[^.!?]*[.!?]?\s*$/) || [text])[0].trim();
+  const isQ = /\?\s*$/.test(last);
+  const wh = /^(what|where|when|why|who|whom|whose|which|how)\b/i.test(last);
+  const want = isQ && !wh ? "rise" : "fall";
+  const tail = voiced.filter((f) => f.t >= end - 0.6);
+  let move = null;
+  if (tail.length >= 8) {
+    const k = Math.floor(tail.length / 3);
+    const avg = (a) => a.reduce((s, f) => s + semi(f.f0, med), 0) / a.length;
+    move = avg(tail.slice(-k)) - avg(tail.slice(0, k));
+  }
+  const got = move == null ? null : move < -1.5 ? "fall" : move > 1.5 ? "rise" : "flat";
+  const name = { rise: "올림 ↗", fall: "내림 ↘", flat: "평평 →" };
+  cards.push(move == null
+    ? { cls: "info", title: "문장 끝 억양", val: "판단 어려움", msg: "끝부분 목소리가 작아서 높낮이를 재지 못했어요." }
+    : {
+      cls: got === want ? "good" : got === "flat" ? "warn" : "bad", title: "문장 끝 억양", val: name[got],
+      msg: got === want ? `${want === "fall" ? "평서문·의문사 의문문은 끝을 내려요" : "예/아니오 의문문은 끝을 올려요"}. 잘했어요.`
+        : `이 문장은 끝을 ${want === "fall" ? "내려야" : "올려야"} 자연스러워요. ${want === "fall" ? "마지막 내용어에서 높게 시작해 뚝 떨어뜨려 보세요." : "마지막 단어를 질문하듯 위로 끌어올려 보세요."}`,
+    });
+
+  // ② 높낮이 폭 (단조로움)
+  const st = voiced.map((f) => semi(f.f0, med));
+  const sd = Math.sqrt(st.reduce((s, x) => s + x * x, 0) / (st.length || 1));
+  cards.push({
+    cls: sd < 1.8 ? "bad" : sd < 2.6 ? "warn" : "good", title: "높낮이 폭", val: `${sd.toFixed(1)} 반음`,
+    msg: sd < 1.8 ? "음 높이가 거의 일정해서 단조롭게 들려요. 강세 단어에서 목소리를 확 올려 보세요."
+      : sd < 2.6 ? "조금 단조로운 편이에요. 중요한 단어를 더 높고 크게 짚어 보세요." : "높낮이 변화가 살아 있어요.",
+  });
+
+  // ③ 강약 리듬 (nPVI: 영어는 강약 차이가 커서 보통 55 이상, 고르게 읽으면 40대)
+  const durs = nuclei.map((n) => n.dur);
+  let pvi = 0;
+  for (let i = 0; i + 1 < durs.length; i++) pvi += Math.abs(durs[i] - durs[i + 1]) / ((durs[i] + durs[i + 1]) / 2);
+  pvi = (100 * pvi) / Math.max(1, durs.length - 1);
+  cards.push({
+    cls: pvi < 42 ? "bad" : pvi < 52 ? "warn" : "good", title: "강약 리듬", val: `${Math.round(pvi)}점`,
+    msg: pvi < 42 ? "음절을 모두 비슷한 길이로 읽어 한국어 리듬에 가까워요. 강세 음절은 길고 세게, 나머지는 짧고 약하게 줄여 보세요."
+      : pvi < 52 ? "강약이 조금 있어요. the·of·to 같은 작은 단어를 더 짧게 흘려 보세요." : "영어다운 강약 리듬이 나와요.",
+  });
+
+  // ④ 말 빠르기
+  const expN = exp.reduce((s, w) => s + w.syl.length, 0);
+  const mine = expN / Math.max(0.3, T);
+  const native = nativeTiming?.text === text ? expN / nativeTiming.sec : null;
+  const ratio = native ? mine / native : null;
+  cards.push({
+    cls: ratio == null ? "info" : ratio < 0.65 || ratio > 1.25 ? "warn" : "good", title: "말 빠르기",
+    val: `초당 ${mine.toFixed(1)}음절`,
+    msg: ratio == null ? "▶ 원어민 듣기를 끝까지 들으면 원어민 속도와 비교해 드려요."
+      : ratio < 0.65 ? `원어민의 ${Math.round(ratio * 100)}% 속도예요. 단어 사이를 끊지 말고 이어 읽어 보세요.`
+      : ratio > 1.25 ? `원어민보다 ${Math.round((ratio - 1) * 100)}% 빨라요. 강세 음절에서 조금 더 머물러 보세요.`
+      : `원어민의 ${Math.round(ratio * 100)}% 속도로 알맞아요.`,
+  });
+
+  // ⑤ 단어별 강세·장음: 기대 음절 수와 들린 음절 수가 비슷할 때만
+  const flat = [];
+  exp.forEach((w, wi) => w.syl.forEach((s, si) => flat.push({ wi, si, ...s })));
+  const ratioN = nuclei.length / Math.max(1, flat.length);
+  const words = [];
+  let aligned = false;
+  if (ratioN > 0.75 && ratioN < 1.3) {
+    aligned = true;
+    const map = alignSyllables(flat, nuclei, start, T);
+    flat.forEach((x, k) => { x.j = map[k]; });
+    const zDb = zs(nuclei.map((n) => n.db)), zDur = zs(nuclei.map((n) => n.dur)), zF0 = zs(nuclei.map((n) => n.f0));
+    const score = nuclei.map((_, j) => zDb[j] + 0.8 * zDur[j] + 0.6 * zF0[j]);
+    const shortDurs = flat.filter((x) => !x.long && !x.stress && x.j >= 0).map((x) => nuclei[x.j].dur).sort((a, b) => a - b);
+    const shortMed = shortDurs[shortDurs.length >> 1] || 0.12;
+    let funcLoud = 0, funcN = 0, contLoud = 0, contN = 0;
+    exp.forEach((w, wi) => {
+      const syls = flat.filter((x) => x.wi === wi);
+      const got = syls.filter((x) => x.j >= 0);
+      got.forEach((x) => {
+        if (w.func) { funcLoud += score[x.j]; funcN++; }
+        else if (x.stress === 1) { contLoud += score[x.j]; contN++; }
+      });
+      if (w.func) return;
+      const res = { word: w.word, ipa: w.ipa, syl: w.syl, checks: [] };
+      if (syls.length >= 2 && got.length === syls.length) {
+        const wantI = syls.findIndex((x) => x.stress === 1);
+        const top = syls.reduce((bi, x, i) => (score[x.j] > score[syls[bi].j] ? i : bi), 0);
+        res.checks.push(wantI === top
+          ? { cls: "good", text: `${wantI + 1}번째 음절을 세게 잘 읽었어요` }
+          : { cls: "bad", text: `${wantI + 1}번째 음절이 세야 하는데 ${top + 1}번째가 더 세게 들려요` });
+      }
+      syls.forEach((x, i) => {
+        if (!x.long || x.j < 0) return;
+        const r = nuclei[x.j].dur / shortMed;
+        const where = syls.length > 1 ? `${i + 1}번째 음절의 ` : "";
+        res.checks.push(r >= 1.25
+          ? { cls: "good", text: `${where}긴 모음을 길게 읽었어요` }
+          : { cls: "warn", text: `${where}긴 모음을 조금 더 길게 끌어 주세요` });
+      });
+      if (res.checks.length) words.push(res);
+    });
+    if (funcN && contN) {
+      const gap = contLoud / contN - funcLoud / funcN;
+      cards.push({
+        cls: gap > 0.8 ? "good" : gap > 0.3 ? "warn" : "bad", title: "내용어 vs 기능어",
+        val: gap > 0.8 ? "또렷한 차이" : gap > 0.3 ? "차이 작음" : "차이 없음",
+        msg: gap > 0.8 ? "중요한 단어는 세게, 작은 단어는 약하게 잘 나눴어요."
+          : "명사·동사·형용사는 더 크고 길게, a·the·of·to 같은 기능어는 작고 빠르게 읽어 보세요.",
+      });
+    }
+  }
+  return { frames, found, exp, flat, cards, words, aligned, med };
+}
+
+function renderProsody(p) {
+  $("#prosody").hidden = false;
+  $("#prosodyChart").hidden = false;
+  const label = { good: "좋음", warn: "보통", bad: "연습", info: "참고" };
+  $("#prosodyCards").innerHTML = p.cards.map((c) => `
+    <div class="pcard ${c.cls}"><h4>${esc(c.title)}<span class="badge">${label[c.cls]}</span></h4>
+      <div class="val">${esc(c.val)}</div><p>${esc(c.msg)}</p></div>`).join("")
+    + '<div class="pcard info"><p>목소리 높낮이·크기·길이로 계산한 <b>참고용 추정</b>이에요. 조용한 곳에서 문장을 끊지 말고 또박또박 읽을수록 정확해요.</p></div>';
+  drawProsody(p);
+  const sylText = (w) => w.syl.map((s) => (s.stress === 1 ? "<b>●</b>" : "·")).join("");
+  $("#stressBox").innerHTML = '<div class="stress-head">강세 · 장음 점검</div>' + (p.aligned
+    ? (p.words.length ? p.words.map((w) => `
+      <div class="stress-row">
+        <span><span class="sw">${esc(w.word)}</span> <span class="syls" title="●가 강세 음절">${sylText(w)}</span> <span class="dim">${esc(w.ipa || "")}</span></span>
+        <span><button data-say="${esc(w.word)}" data-rate="0.7">🔊</button></span>
+        ${w.checks.map((c) => `<span class="msg"><span class="tag ${c.cls}">${{ good: "OK", warn: "보통", bad: "연습" }[c.cls]}</span> ${esc(c.text)}</span>`).join("")}
+      </div>`).join("") : '<div class="dim">점검할 여러 음절 단어·장음이 없어요.</div>')
+    : '<div class="dim">들린 음절 수가 문장과 많이 달라서 단어별 판정은 건너뛰었어요. 끊지 말고 문장 전체를 한 번에, 또박또박 읽어 보세요.</div>');
+}
+
+// 높낮이 선 + 크기 면 + 음절 점 + 강세 자리 ▼ (색은 화면 토큰에서 읽는다)
+function drawProsody(p) {
+  const cv = $("#prosodyChart");
+  const W = cv.clientWidth || 600, H = 170;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d");
+  g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue("--ink").trim(), bar = css.getPropertyValue("--bar").trim(), mark = css.getPropertyValue("--mark").trim();
+  const { frames, found } = p;
+  const t0 = found.start - 0.1, t1 = found.end + 0.1;
+  const X = (t) => 8 + ((t - t0) / (t1 - t0)) * (W - 16);
+  const top = 22, bot = H - 14;
+  g.clearRect(0, 0, W, H);
+  const dbMax = Math.max(...found.nuclei.map((n) => n.db)), dbMin = dbMax - 40;
+  g.fillStyle = "rgba(29,42,36,.14)";
+  g.beginPath(); g.moveTo(X(t0), bot);
+  frames.forEach((f) => { if (f.t >= t0 && f.t <= t1) g.lineTo(X(f.t), bot - Math.max(0, (f.db - dbMin) / 40) * (bot - top) * 0.6); });
+  g.lineTo(X(t1), bot); g.closePath(); g.fill();
+  const v = frames.filter((f) => f.f0 && f.t >= t0 && f.t <= t1);
+  const lo = -8, hi = 8;
+  g.strokeStyle = bar; g.lineWidth = 2.5; g.lineJoin = "round";
+  let prev = null;
+  v.forEach((f) => {
+    const y = bot - ((Math.max(lo, Math.min(hi, semi(f.f0, p.med))) - lo) / (hi - lo)) * (bot - top);
+    if (prev && f.t - prev.t < 0.05) { g.beginPath(); g.moveTo(X(prev.t), prev.y); g.lineTo(X(f.t), y); g.stroke(); }
+    prev = { t: f.t, y };
+  });
+  const sc = zs(found.nuclei.map((n) => n.db));
+  found.nuclei.forEach((n, j) => {
+    g.fillStyle = mark; g.strokeStyle = ink; g.lineWidth = 1;
+    const r = 3 + Math.max(0, Math.min(4, sc[j] + 1.5));
+    g.beginPath(); g.arc(X(n.t), bot - 4, r, 0, Math.PI * 2); g.fill(); g.stroke();
+  });
+  if (p.aligned) {
+    g.font = "12px Galmuri11, sans-serif"; g.textAlign = "center";
+    p.flat.forEach((x) => {
+      if (x.j < 0) return;
+      const n = found.nuclei[x.j];
+      if (x.si === 0) { g.fillStyle = ink; g.fillText(p.exp[x.wi].word, X(n.t), 12); }
+      if (x.stress === 1) { g.fillStyle = bar; g.fillText("▼", X(n.t), top + 2); }
+    });
+  }
+}
+$("#stressBox").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-say]");
+  if (b) speak(b.dataset.say, +b.dataset.rate);
+});
+window.addEventListener("resize", () => { if (lastProsody && !$("#prosody").hidden) drawProsody(lastProsody); });
 
 /* 교정 팁 (한국인이 자주 틀리는 발음 규칙) */
 const SOUND_RULES = [
@@ -1253,8 +1721,9 @@ $("#btnCoach").onclick = async () => {
   try {
     for (const x of issues.slice(0, 12)) {
       const lemma = (await findLemma(x.word.toLowerCase())) || x.word.toLowerCase();
-      const fd = (await freeDict(x.word.toLowerCase())) || (await freeDict(lemma));
-      x.ipa = fd?.ipa || ""; x.audio = fd?.audio || "";
+      let pr = await pronOf(x.word.toLowerCase());
+      if (!pr.audio && lemma !== x.word.toLowerCase()) pr = { ...(await pronOf(lemma)), ipa: pr.ipa || "" };
+      x.ipa = pr.ipa; x.audio = pr.audio;
     }
   } finally {
     busy(false);
@@ -1287,7 +1756,7 @@ function renderCoach(issues) {
 }
 $("#coach").addEventListener("click", (e) => {
   const au = e.target.closest("[data-audio]");
-  if (au) return new Audio(au.dataset.audio).play().catch(() => toast("녹음을 재생하지 못했어요", true));
+  if (au) return playAudio(au.dataset.audio);
   const b = e.target.closest("[data-say]");
   if (b) speak(b.dataset.say, +b.dataset.rate);
   if (e.target.closest("[data-say-all]")) listen();
@@ -1401,27 +1870,40 @@ $("#restoreFile").onchange = async (e) => {
   e.target.value = "";
 };
 
-/* ───────── 탭 · 키보드 ───────── */
-$$("#tabs button, .key.f").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
-$('.key[data-act="listen"]').onclick = listen;
-$('.key[data-act="rec"]').onclick = toggleRec;
-
-$$(".krow[data-row]").forEach((row) => {
-  row.innerHTML = [...row.dataset.row].map((c) => `<span class="key" data-key="${c}">${c.toUpperCase()}</span>`).join("")
-    + (row.dataset.row === "asdfghjkl" ? '<span class="key" data-key="enter" style="min-width:90px">ENTER</span>' : "")
-    + (row.dataset.row === "zxcvbnm" ? '<span class="key" data-key=" " style="min-width:160px">SPACE</span><span class="key" data-key="backspace" style="min-width:70px">BACK</span>' : "");
-});
+/* ───────── 탭 · 단축키 ───────── */
+$$("#tabs button").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
 
 document.addEventListener("keydown", (e) => {
-  const k = $(`.keyboard .key[data-key="${CSS.escape(e.key.toLowerCase())}"]`);
-  if (k) { k.classList.add("pressed"); setTimeout(() => k.classList.remove("pressed"), 120); }
   if (e.altKey && /^[1-5]$/.test(e.key)) {
     e.preventDefault();
     showView(["input", "result", "pron", "book", "settings"][+e.key - 1]);
   } else if (e.altKey && e.key.toLowerCase() === "r") { e.preventDefault(); toggleRec(); }
   else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); listen(); }
+  else if (e.key === "Escape" && $("#cropper").hidden) stopAll();
   else if (e.ctrlKey && e.key === "Enter" && state.view === "input" && state.marks.length) { e.preventDefault(); analyze(); }
 });
+
+/* ───────── 글자 크기 (원문 · 따라 읽을 문장 따로) ───────── */
+const fontSizes = Object.assign({ passage: 23, pron: 26 }, store.get("lexion.fontsize", {}));
+// 예전에 저장한 크기가 범위(5~40)를 벗어나면 맞춘다
+for (const k in fontSizes) fontSizes[k] = Math.max(5, Math.min(40, +fontSizes[k] || 23));
+function applyFontSizes() {
+  const root = document.documentElement.style;
+  for (const [k, v] of Object.entries(fontSizes)) {
+    root.setProperty(`--fs-${k}`, v + "px");
+    root.setProperty(`--fs-${k}-edit`, Math.round(v * 0.8) + "px");   // 편집칸은 조금 작게
+    const ctl = $(`.fs-ctl[data-fs="${k}"]`);
+    if (!ctl) continue;
+    ctl.querySelector("input").value = v;
+    ctl.querySelector(".fs-val").textContent = v + "px";
+  }
+}
+$$(".fs-ctl").forEach((ctl) => ctl.querySelector("input").addEventListener("input", (e) => {
+  fontSizes[ctl.dataset.fs] = +e.target.value;
+  store.set("lexion.fontsize", fontSizes);
+  applyFontSizes();
+}));
+applyFontSizes();
 
 /* ───────── 시작 ───────── */
 $("#sbModel").textContent = "무료 사전 모드";

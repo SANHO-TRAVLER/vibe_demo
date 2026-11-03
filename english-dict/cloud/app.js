@@ -70,7 +70,6 @@ function armed(btn, label) {
 function showView(v) {
   $$(".view").forEach((el) => el.classList.toggle("on", el.id === "view-" + v));
   $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
-  $$(".key.f").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   $("#sbMode").textContent = VIEW_LABEL[v];
   state.view = v;
   if (v === "pron") renderPronTarget();
@@ -906,11 +905,18 @@ function listen() {
     if (ev.name && ev.name !== "word") return;
     words.forEach((w) => {
       const t = pronTokens[+w.dataset.i];
-      w.classList.toggle("speaking", ev.charIndex >= t.start && ev.charIndex < t.start + t.text.length);
+      const on = ev.charIndex >= t.start && ev.charIndex < t.start + t.text.length;
+      w.classList.toggle("speaking", on);
+      if (on) w.scrollIntoView({ block: "nearest" });   // 긴 문장은 읽는 곳을 따라 내려간다
     });
   }, () => words.forEach((w) => w.classList.remove("speaking")));
 }
 $("#btnListen").onclick = listen;
+function stopAll() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  $$("#pronTarget .w.speaking").forEach((w) => w.classList.remove("speaking"));
+}
+$("#btnStop").onclick = stopAll;
 
 const COACH_SCHEMA = {
   type: "object",
@@ -1058,26 +1064,39 @@ $("#restoreFile").onchange = async (e) => {
   e.target.value = "";
 };
 
-/* ───────── 탭 · 키보드 ───────── */
-$$("#tabs button, .key.f").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
-$('.key[data-act="listen"]').onclick = listen;
-$('.key[data-act="coach"]').onclick = coach;
-
-$$(".krow[data-row]").forEach((row) => {
-  row.innerHTML = [...row.dataset.row].map((c) => `<span class="key" data-key="${c}">${c.toUpperCase()}</span>`).join("")
-    + (row.dataset.row === "asdfghjkl" ? '<span class="key" data-key="enter" style="min-width:90px">ENTER</span>' : "")
-    + (row.dataset.row === "zxcvbnm" ? '<span class="key" data-key=" " style="min-width:160px">SPACE</span><span class="key" data-key="backspace" style="min-width:70px">BACK</span>' : "");
-});
+/* ───────── 탭 · 단축키 ───────── */
+$$("#tabs button").forEach((b) => (b.onclick = () => showView(b.dataset.view)));
 
 document.addEventListener("keydown", (e) => {
-  const k = $(`.keyboard .key[data-key="${CSS.escape(e.key.toLowerCase())}"]`);
-  if (k) { k.classList.add("pressed"); setTimeout(() => k.classList.remove("pressed"), 120); }
   if (e.altKey && /^[1-5]$/.test(e.key)) {
     e.preventDefault();
     showView(["input", "result", "pron", "book", "settings"][+e.key - 1]);
   } else if (e.altKey && e.key.toLowerCase() === "l") { e.preventDefault(); listen(); }
+  else if (e.key === "Escape" && $("#cropper").hidden) stopAll();
   else if (e.ctrlKey && e.key === "Enter" && state.view === "input" && state.marks.length) { e.preventDefault(); analyze(); }
 });
+
+/* ───────── 글자 크기 (원문 · 따라 읽을 문장 따로) ───────── */
+const fontSizes = Object.assign({ passage: 23, pron: 26 }, store.get("lexion.fontsize", {}));
+// 예전에 저장한 크기가 범위(5~40)를 벗어나면 맞춘다
+for (const k in fontSizes) fontSizes[k] = Math.max(5, Math.min(40, +fontSizes[k] || 23));
+function applyFontSizes() {
+  const root = document.documentElement.style;
+  for (const [k, v] of Object.entries(fontSizes)) {
+    root.setProperty(`--fs-${k}`, v + "px");
+    root.setProperty(`--fs-${k}-edit`, Math.round(v * 0.8) + "px");   // 편집칸은 조금 작게
+    const ctl = $(`.fs-ctl[data-fs="${k}"]`);
+    if (!ctl) continue;
+    ctl.querySelector("input").value = v;
+    ctl.querySelector(".fs-val").textContent = v + "px";
+  }
+}
+$$(".fs-ctl").forEach((ctl) => ctl.querySelector("input").addEventListener("input", (e) => {
+  fontSizes[ctl.dataset.fs] = +e.target.value;
+  store.set("lexion.fontsize", fontSizes);
+  applyFontSizes();
+}));
+applyFontSizes();
 
 /* ───────── 시작 ───────── */
 updateCount();

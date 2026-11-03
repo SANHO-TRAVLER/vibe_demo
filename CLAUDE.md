@@ -49,5 +49,6 @@ python english-dict/tools/build_cloud.py        # cloud/ → cloud/dist/yeongdon
 두 버전이 거의 같은 구조로 따로 존재한다. 한쪽을 고치면 다른 쪽에도 반영해야 하는지 확인할 것.
 
 - **로컬판** (`english-dict/index.html`, `app.js`): API 키 없이 무료 도구만 쓴다 — Free Dictionary, Wiktionary, Chrome 내장 Translator → MyMemory, Tesseract.js OCR, 브라우저 음성인식. 사용자는 유료 Claude API를 쓰기 싫어하므로 API 키를 넣지 않는다.
+- **로컬판 배포**: Vercel 프로젝트 `english-dict` → https://english-dict-beryl.vercel.app . GitHub 연동이 아니라 CLI로 올린다: `english-dict` 폴더에서 `vercel deploy --prod --yes` (`.vercelignore`가 `cloud/`·`tools/`를 뺀다). 사용자는 이 개발용 노트북이 아닌 다른 노트북에서 배포 주소로 쓴다. 데이터는 DB 없이 각 브라우저 localStorage에만 있다.
 - 빌드 결과(`dist/`)와 `__pycache__`는 루트 `.gitignore`로 git에서 뺐다. `cloud/dist/yeongdong.html`은 로컬에서만 만들어 Artifact로 게시하고 GitHub에는 올리지 않는다. (예외: `DemoWeb/public/game/`의 웹 게임 빌드는 Vercel이 내주므로 커밋한다.)
 - **claude.ai판** (`english-dict/cloud/`): Artifact 런타임의 `window.claude.use("sample")`(AI 채점·첨삭)과 `"downloads"`를 쓴다. claude.ai는 외부 fetch·외부 글꼴·마이크를 막으므로, `build_cloud.py`가 Galmuri 글꼴(`tools/fonts/*.woff2`)을 data URI로 넣고 CSS/JS를 인라인해서 `cloud/dist/yeongdong.html` 한 파일로 만든다. cloud 소스를 고치면 다시 빌드한 뒤 같은 파일 경로로 Artifact를 재게시한다.

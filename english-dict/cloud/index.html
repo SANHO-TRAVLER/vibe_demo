@@ -48,6 +48,7 @@
                   <div class="win-title">
                     <span>원문</span>
                     <span class="win-actions">
+                      <label class="fs-ctl" data-fs="passage" title="원문 글자 크기"><span class="fs-a sm">가</span><input type="range" min="5" max="40" step="1" aria-label="원문 글자 크기"><span class="fs-a lg">가</span><span class="fs-val">0</span></label>
                       <button class="kbtn" id="btnEditText" hidden>✎ 다시 편집</button>
                       <button class="kbtn" id="btnClearText">지우기</button>
                     </span>
@@ -115,27 +116,32 @@
 
             <!-- 3. 발음 교정 -->
             <section class="view" id="view-pron">
-              <div class="col col-main">
-                <div class="win">
+              <div class="col pron-left">
+                <div class="win pron-win">
                   <div class="win-title">
                     <span>따라 읽을 문장</span>
                     <span class="win-actions">
+                      <label class="fs-ctl" data-fs="pron" title="따라 읽을 문장 글자 크기"><span class="fs-a sm">가</span><input type="range" min="5" max="40" step="1" aria-label="따라 읽을 문장 글자 크기"><span class="fs-a lg">가</span><span class="fs-val">0</span></label>
                       <button class="kbtn" id="btnPronFromInput">원문 가져오기</button>
                       <button class="kbtn" id="btnPronEdit">✎ 편집</button>
                     </span>
                   </div>
-                  <div class="win-body">
+                  <div class="win-body scroll">
                     <textarea class="lcd-input mid" id="pronInput" spellcheck="false" hidden placeholder="연습할 문장을 입력하세요"></textarea>
                     <div class="pron-target" id="pronTarget"></div>
-                    <div class="pron-legend">
-                      <span class="dim">단어를 클릭하면 그 단어만 천천히 들려줘요. 발음 포인트를 받으면 주의할 단어에 밑줄이 생겨요.</span>
-                    </div>
+                  </div>
+                  <div class="win-foot pron-legend">
+                    <span class="dim">단어를 클릭하면 그 단어만 천천히 들려줘요. 발음 포인트를 받으면 주의할 단어에 밑줄이 생겨요.</span>
                   </div>
                 </div>
 
+              </div>
+
+              <div class="col pron-right">
                 <div class="pron-controls">
                   <div class="ctrl-group">
                     <button class="kbtn big-btn" id="btnListen">▶ 원어민 듣기</button>
+                    <button class="kbtn big-btn" id="btnStop" title="듣기 멈춤">■ 멈춤</button>
                     <label class="ctrl">속도 <input type="range" id="rate" min="0.5" max="1.3" step="0.05" value="0.9"><span id="rateVal">0.90x</span></label>
                     <label class="ctrl">목소리 <select class="lcd-input" id="voiceSel"></select></label>
                   </div>
@@ -151,10 +157,7 @@
                     여기서는 원어민 음성을 듣고, AI가 이 문장에서 한국인이 틀리기 쉬운 발음·강세·연음을 짚어 줍니다.</div>
                   </div>
                 </div>
-              </div>
-
-              <div class="col col-side">
-                <div class="win grow">
+                <div class="win side-win">
                   <div class="win-title"><span>발음 포인트</span></div>
                   <div class="win-body scroll" id="coach">
                     <div class="empty">[AI 발음 포인트 받기]를 누르면<br>주의할 단어와 읽는 요령을 알려 드려요.</div>
@@ -219,7 +222,7 @@
                       <li><b>채점 받기</b>를 누르면 <b>[2 단어 해설]</b>에서 판정 · 문맥상 의미 · 사유 첨삭 · 영영 · 영한 · 어원을 볼 수 있어요.</li>
                       <li><b>[3 발음 교정]</b>에서 원어민 음성을 듣고, 주의할 발음 포인트를 받아 보세요.</li>
                     </ol>
-                    <p class="note">단축키: <b>Alt+1~5</b> 화면 전환 · <b>Ctrl+Enter</b> 채점 · <b>Alt+L</b> 듣기</p>
+                    <p class="note">단축키: <b>Alt+1~5</b> 화면 전환 · <b>Ctrl+Enter</b> 채점 · <b>Alt+L</b> 듣기 · <b>Esc</b> 멈춤</p>
                     <p class="note">단어장은 이 브라우저에만 저장돼요. 가끔 [백업]으로 파일을 받아 두세요.</p>
                   </div>
                 </div>
@@ -262,24 +265,8 @@
     <!-- ── 경첩 ── -->
     <div class="hinge"><span></span><span></span></div>
 
-    <!-- ── 아랫판(키보드) ── -->
-    <div class="base">
-      <div class="keyboard" id="keyboard">
-        <div class="krow fn">
-          <button class="key f" data-view="input">입력</button>
-          <button class="key f" data-view="result">해설</button>
-          <button class="key f" data-view="pron">발음</button>
-          <button class="key f" data-view="book">단어장</button>
-          <button class="key f" data-view="settings">설정</button>
-          <span class="kgap"></span>
-          <button class="key s" data-act="listen">🔊 듣기</button>
-          <button class="key s red" data-act="coach">★ 포인트</button>
-        </div>
-        <div class="krow" data-row="qwertyuiop"></div>
-        <div class="krow" data-row="asdfghjkl"></div>
-        <div class="krow" data-row="zxcvbnm"></div>
-      </div>
-    </div>
+    <!-- ── 아랫판: 자판은 접어 두고 앞면만 보인다 ── -->
+    <div class="base"><span class="base-led"></span><span class="base-label">YEONGDONG</span><span class="base-led"></span></div>
   </div>
 </div>
 
