@@ -979,6 +979,14 @@ const store = (() => {
       }
       commit();
     },
+    renameQuest(id, text) {
+      const quest = find(id);
+      const trimmed = clean(text);
+      if (!quest || !trimmed) return false;
+      quest.text = trimmed;
+      commit();
+      return true;
+    },
     deleteQuest(id) {
       state.quests = state.quests.filter((q) => q.id !== id);
       commit();
@@ -1183,7 +1191,7 @@ const view = (() => {
     return btn;
   }
 
-  // 세부 목표 글자 고치기 (글자를 더블클릭해도 된다)
+  // 오늘의 노동·세부 목표 글자 고치기 (글자를 더블클릭해도 된다)
   function editButton(label, action) {
     const btn = deleteButton(label, action);
     btn.textContent = '✎';
@@ -1285,6 +1293,7 @@ const view = (() => {
       checkbox(quest.completed, `${diff.label}: ${quest.text} 완료`, 'toggle-quest'),
       tag,
       body,
+      editButton(`${quest.text} 수정`, 'edit-quest'),
       deleteButton(`${quest.text} 삭제`, 'delete-quest'),
       renderJournal(quest),
     );
@@ -2377,9 +2386,9 @@ const sync = (() => {
     return info;
   }
 
-  // 다음 수주를 위해 업체·제품·비고만 비운다 (구분과 담당자는 이어서 쓰는 경우가 많아 남김)
+  // 다음 수주를 위해 업체·제품·담당 BM/영업·비고를 비운다 (구분·담당 연구원·품질보증 담당자는 이어서 쓰는 경우가 많아 남김)
   function clearInfo(form) {
-    form.querySelectorAll('.journal-new [data-field="company"], .journal-new [data-field="product"], .journal-new [data-field="note"]')
+    form.querySelectorAll(['company', 'product', 'bm', 'note'].map((id) => `.journal-new [data-field="${id}"]`).join(', '))
       .forEach((c) => { c.value = ''; });
   }
 
@@ -2589,9 +2598,10 @@ const sync = (() => {
     setTimeout(() => item.classList.remove('flash'), 1200);
   }
 
-  // 세부 목표 글자를 그 자리에서 입력칸으로 바꿔 고친다. Enter·칸 밖 클릭 = 저장, Esc = 취소
+  // 오늘의 노동·세부 목표 글자를 그 자리에서 입력칸으로 바꿔 고친다. Enter·칸 밖 클릭 = 저장, Esc = 취소
   function startEdit(item) {
-    const span = item.querySelector(':scope > .step-text');
+    const daily = item.matches('.quest.daily');
+    const span = item.querySelector(daily ? ':scope > .quest-body > .quest-text' : ':scope > .step-text');
     if (!span) return;
     const { questId, stepId, entryId, schedStepId } = ids(item);
     const input = document.createElement('input');
@@ -2599,7 +2609,7 @@ const sync = (() => {
     input.type = 'text';
     input.maxLength = 100;
     input.value = span.textContent;
-    input.setAttribute('aria-label', '세부 목표 수정');
+    input.setAttribute('aria-label', daily ? '오늘의 노동 수정' : '세부 목표 수정');
     span.replaceWith(input);
     input.focus();
     input.select();
@@ -2609,7 +2619,8 @@ const sync = (() => {
       finished = true;
       const text = input.value;
       const changed = save && text.trim() && text.trim() !== span.textContent;
-      if (changed && schedStepId) store.renameEntryStep(questId, entryId, schedStepId, text);
+      if (changed && daily) store.renameQuest(questId, text);
+      else if (changed && schedStepId) store.renameEntryStep(questId, entryId, schedStepId, text);
       else if (changed) store.renameStep(questId, stepId, text);
       else view.render(store.getState());
     };
@@ -2622,8 +2633,8 @@ const sync = (() => {
   }
 
   board.addEventListener('dblclick', (e) => {
-    const text = e.target.closest('.step-text');
-    const item = text?.closest('.step, .sched-step');
+    const text = e.target.closest('.step-text, .quest.daily .quest-text');
+    const item = text?.closest('.step, .sched-step, .quest.daily');
     if (item && !item.closest('.quest.completed')) startEdit(item);
   });
 
@@ -2631,9 +2642,8 @@ const sync = (() => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
-    if (action === 'edit-step' || action === 'edit-entry-step') {
-      return startEdit(btn.closest(action === 'edit-step' ? '.step' : '.sched-step'));
-    }
+    const editing = { 'edit-quest': '.quest', 'edit-step': '.step', 'edit-entry-step': '.sched-step' }[action];
+    if (editing) return startEdit(btn.closest(editing));
     if (calendarAction(action, btn)) return;
     if (action === 'goto-entry') return reveal(btn.dataset.questId, btn.dataset.entryId, true);
     if (action === 'go-day') {
