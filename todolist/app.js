@@ -997,6 +997,14 @@ const store = (() => {
       step.done = !step.done;
       commit();
     },
+    renameStep(questId, stepId, text) {
+      const step = find(questId)?.steps.find((s) => s.id === stepId);
+      const trimmed = clean(text);
+      if (!step || !trimmed) return false;
+      step.text = trimmed;
+      commit();
+      return true;
+    },
     deleteStep(questId, stepId) {
       const quest = find(questId);
       if (!quest) return;
@@ -1047,6 +1055,14 @@ const store = (() => {
       if (!step) return;
       step.done = !step.done;
       commit();
+    },
+    renameEntryStep(questId, entryId, stepId, text) {
+      const step = findEntry(questId, entryId)?.steps.find((s) => s.id === stepId);
+      const trimmed = clean(text);
+      if (!step || !trimmed) return false;
+      step.text = trimmed;
+      commit();
+      return true;
     },
     deleteEntryStep(questId, entryId, stepId) {
       const entry = findEntry(questId, entryId);
@@ -1164,6 +1180,14 @@ const view = (() => {
     btn.type = 'button';
     btn.dataset.action = action;
     btn.setAttribute('aria-label', label);
+    return btn;
+  }
+
+  // 세부 목표 글자 고치기 (글자를 더블클릭해도 된다)
+  function editButton(label, action) {
+    const btn = deleteButton(label, action);
+    btn.textContent = '✎';
+    btn.title = '수정 (글자를 더블클릭해도 돼요)';
     return btn;
   }
 
@@ -1314,6 +1338,7 @@ const view = (() => {
         s.append(
           checkbox(step.done, `${step.text} 완료`, 'toggle-entry-step'),
           make('span', 'step-text', step.text),
+          editButton(`${step.text} 수정`, 'edit-entry-step'),
           deleteButton(`${step.text} 삭제`, 'delete-entry-step'),
         );
         subList.append(s);
@@ -1394,6 +1419,7 @@ const view = (() => {
       s.append(
         checkbox(step.done, `${step.text} 완료`, 'toggle-step'),
         make('span', 'step-text', step.text),
+        editButton(`${step.text} 수정`, 'edit-step'),
         deleteButton(`${step.text} 삭제`, 'delete-step'),
       );
       steps.append(s);
@@ -2563,10 +2589,51 @@ const sync = (() => {
     setTimeout(() => item.classList.remove('flash'), 1200);
   }
 
+  // 세부 목표 글자를 그 자리에서 입력칸으로 바꿔 고친다. Enter·칸 밖 클릭 = 저장, Esc = 취소
+  function startEdit(item) {
+    const span = item.querySelector(':scope > .step-text');
+    if (!span) return;
+    const { questId, stepId, entryId, schedStepId } = ids(item);
+    const input = document.createElement('input');
+    input.className = 'step-edit';
+    input.type = 'text';
+    input.maxLength = 100;
+    input.value = span.textContent;
+    input.setAttribute('aria-label', '세부 목표 수정');
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+    let finished = false;
+    const finish = (save) => {
+      if (finished) return;
+      finished = true;
+      const text = input.value;
+      const changed = save && text.trim() && text.trim() !== span.textContent;
+      if (changed && schedStepId) store.renameEntryStep(questId, entryId, schedStepId, text);
+      else if (changed) store.renameStep(questId, stepId, text);
+      else view.render(store.getState());
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.isComposing) return; // 한글 조합 중 Enter는 무시
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  board.addEventListener('dblclick', (e) => {
+    const text = e.target.closest('.step-text');
+    const item = text?.closest('.step, .sched-step');
+    if (item && !item.closest('.quest.completed')) startEdit(item);
+  });
+
   board.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
+    if (action === 'edit-step' || action === 'edit-entry-step') {
+      return startEdit(btn.closest(action === 'edit-step' ? '.step' : '.sched-step'));
+    }
     if (calendarAction(action, btn)) return;
     if (action === 'goto-entry') return reveal(btn.dataset.questId, btn.dataset.entryId, true);
     if (action === 'go-day') {
