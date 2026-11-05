@@ -39,7 +39,7 @@ const state = {
 
 // 새 글씨의 기본값. 글씨를 고르면 그 글씨의 값으로 바뀐다.
 const opts = {
-  size: 0.06, rot: 0, bleed: 0.65, scatter: 0.6, ink: '#1d1a18', font: 'elite',
+  size: 0.06, rot: 0, slant: 0, bleed: 0.65, scatter: 0.6, ink: '#1d1a18', font: 'elite',
   stitchFont: 'script', rows: 14, thread: '#9d1b2c', threadKind: 'cotton',
   back: 'none', risoInk: 0,
 };
@@ -731,6 +731,7 @@ function syncControls() {
   });
   $('#size').value = opts.size;
   $('#rot').value = opts.rot;
+  $('#slant').value = opts.slant;
   $('#bleed').value = opts.bleed;
   $('#scatter').value = opts.scatter;
   $('#dot').value = state.riso.dot;
@@ -774,6 +775,7 @@ async function loadPhoto(file) {
 
 // ── 저장 ──────────────────────────────────────────
 let savedBlob = null;
+let savedUrl = '';                 // JPG 내용을 그대로 담은 주소. 임시 blob 주소는 휴대폰에서 확장자 없이 저장될 수 있다
 async function openSave() {
   await printJob;                  // 찍는 중이면 끝난 그림을 저장한다
   const out = Engine.canvas(state.W, state.H);
@@ -782,8 +784,8 @@ async function openSave() {
   out.toBlob((blob) => {
     savedBlob = blob;
     const img = $('#saveImg');
-    if (img.src) URL.revokeObjectURL(img.src);
-    img.src = URL.createObjectURL(blob);
+    savedUrl = out.toDataURL('image/jpeg', 0.93);
+    img.src = savedUrl;            // 미리보기를 꾹 눌러 저장해도 JPG로 받는다
     $('#shareBtn').hidden = !(navigator.canShare && navigator.canShare({ files: [saveFile()] }));
     $('#saveDialog').showModal();
   }, 'image/jpeg', 0.93);
@@ -796,11 +798,12 @@ function saveFile() {
 
 function download() {
   const a = document.createElement('a');
-  const file = saveFile();
-  a.href = URL.createObjectURL(file);
-  a.download = file.name;
+  a.href = savedUrl;
+  a.download = saveFile().name;
+  a.type = 'image/jpeg';
+  document.body.append(a);         // 문서에 붙어 있어야 누르기가 듣는 브라우저가 있다
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  a.remove();
 }
 
 async function share() {
@@ -859,7 +862,7 @@ function wire() {
   makeChips($('#threadChips2'), THREADS, 'thread', (c) => { opts.thread = c; state.borderColor = c; syncControls(); });
   makeChips($('#matChips'), MATS, 'matColor', (c) => { state.matColor = c; syncControls(); rebuildBase(); });
 
-  ['size', 'rot', 'bleed', 'scatter', 'rows'].forEach((id) => {
+  ['size', 'rot', 'slant', 'bleed', 'scatter', 'rows'].forEach((id) => {
     $(`#${id}`).addEventListener('input', (e) => setOpt(id, Number(e.target.value)));
   });
   $('#noise').addEventListener('input', (e) => {
@@ -931,7 +934,7 @@ function wire() {
     const text = $('#ghostText').value.trim();
     if (!text) return;
     await Engine.loadFonts(['Galmuri14', 'Dancing Script', 'Gaegu'], text);
-    layGhost(Engine.textCells(text, opts.stitchFont, opts.rows));
+    layGhost(Engine.textCells(text, opts.stitchFont, opts.rows, opts.slant));
   });
   $('#ghostClearBtn').addEventListener('click', () => { hand.ghost.clear(); draw(); });
 

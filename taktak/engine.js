@@ -215,11 +215,12 @@ const Engine = (() => {
 
   function inkSprite(item, W) {
     const { px, lineH, width, rows, placed, fontStr } = layoutType(item, W);
+    const ding = item.kind === 'ding';
     const hasBack = item.back !== 'none';
     const plan = scatterPlan(item, placed, px);
     const reachX = Math.max(0, ...plan.map((p) => Math.abs(p.dx)));
     const reachY = Math.max(0, ...plan.map((p) => Math.abs(p.dy)));
-    const padX = Math.ceil(px * (hasBack ? 1.15 : 0.55) + reachX);
+    const padX = Math.ceil(px * (hasBack ? 1.15 : 0.55) + reachX + px * Math.abs(item.slant) * 0.5);
     const padY = Math.ceil(px * (hasBack ? 0.72 : 0.55) + reachY);
     const cw = Math.ceil(width + padX * 2);
     const ch = Math.ceil(rows * lineH + padY * 2);
@@ -243,6 +244,7 @@ const Engine = (() => {
       c.save();
       c.translate(x, y);
       c.rotate(p.rot);
+      if (!ding) c.transform(1, 0, -item.slant, 1, 0, 0);   // 이탤릭: 글자 윗부분을 옆으로 민다
       c.globalAlpha = 0.72 + rand() * 0.28;
       c.fillText(g.ch, 0, 0);
       if (HANGUL.test(g.ch)) c.strokeText(g.ch, 0, 0);   // 은타자 획은 가늘어서 잉크를 조금 더 먹인다
@@ -312,7 +314,8 @@ const Engine = (() => {
     const lineH = px * 1.3;
     const shift = px * (0.02 + 0.13 * riso.mis);
     const hasBack = item.back !== 'none';
-    const padX = Math.ceil((hasBack ? px * 0.9 : px * 0.3) + shift);
+    const slant = ding ? 0 : item.slant;
+    const padX = Math.ceil((hasBack ? px * 0.9 : px * 0.3) + shift + px * Math.abs(slant) * 0.5);
     const padY = Math.ceil((hasBack ? px * 0.6 : px * 0.3) + shift);
     const cw = Math.ceil(width + padX * 2);
     const ch = Math.ceil(lines.length * lineH + padY * 2);
@@ -323,7 +326,11 @@ const Engine = (() => {
       c.font = fontStr;
       c.textBaseline = 'middle';
       c.fillStyle = color;
-      lines.forEach((l, i) => c.fillText(l, padX + dx, padY + (i + 0.5) * lineH + dy));
+      lines.forEach((l, i) => {
+        c.setTransform(1, 0, -slant, 1, padX + dx, padY + (i + 0.5) * lineH + dy);
+        c.fillText(l, 0, 0);
+      });
+      c.setTransform(1, 0, 0, 1, 0, 0);
       const img = c.getImageData(0, 0, cw, ch);
       const d = img.data;
       // 잉크가 덜 묻은 자리: 작은 구멍과 얼룩이 손맛을 만든다
@@ -495,7 +502,7 @@ const Engine = (() => {
 
   // ── 십자수: 글자를 칸으로 ─────────────────────────
   // 반환: { cols, rows, cells: [[x, y], ...] } — 칸 왼쪽 위 좌표
-  function textCells(text, fontKey, rowsWanted) {
+  function textCells(text, fontKey, rowsWanted, slant = 0) {
     const dot = fontKey === 'dot';
     const big = dot && rowsWanted >= 15;
     const font = dot ? (big ? STITCH_FONTS.dot14 : STITCH_FONTS.dot) : STITCH_FONTS.script;
@@ -507,7 +514,8 @@ const Engine = (() => {
     const fontStr = `${font.weight} ${px}px ${font.css}`;
     const m = canvas(1, 1).getContext('2d');
     m.font = fontStr;
-    const width = Math.ceil(Math.max(1, ...lines.map((l) => m.measureText(l).width))) + px;
+    const lean = Math.ceil(px * Math.abs(slant));
+    const width = Math.ceil(Math.max(1, ...lines.map((l) => m.measureText(l).width))) + px + lean * 2;
     const height = lines.length * lineH + px;
     const cv = canvas(width, height);
     const c = cv.getContext('2d', { willReadFrequently: true });
@@ -521,9 +529,11 @@ const Engine = (() => {
     }
     lines.forEach((l, i) => {
       const y = Math.round(px / 2 + (i + 0.5) * lineH);
-      c.fillText(l, Math.round(px / 2), y);
-      if (!dot) c.strokeText(l, Math.round(px / 2), y);
+      c.setTransform(1, 0, -slant, 1, Math.round(px / 2) + lean, y);
+      c.fillText(l, 0, 0);
+      if (!dot) c.strokeText(l, 0, 0);
     });
+    c.setTransform(1, 0, 0, 1, 0, 0);
     const d = c.getImageData(0, 0, width, height).data;
     const cells = [];
     for (let y = 0; y < height; y++) {
@@ -616,7 +626,7 @@ const Engine = (() => {
 
   function stitchSprite(item, W) {
     const ding = item.kind === 'ding';
-        const grid = ding ? dingCells(item.ding) : textCells(item.text, item.stitchFont, item.rows);
+        const grid = ding ? dingCells(item.ding) : textCells(item.text, item.stitchFont, item.rows, item.slant);
     const nominal = ding ? grid.rows : grid.rowsUsed;
     const cell = Math.max(3, (item.size * W * (ding ? 2.2 : 2)) / nominal);
     const hasBack = item.back !== 'none';

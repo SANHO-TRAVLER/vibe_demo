@@ -1,7 +1,7 @@
 'use strict';
 // 인터넷이 없어도 열리도록 한 번 받은 파일을 보관한다.
 // 먼저 새 파일을 받아 보고, 실패하면 보관본을 쓴다. 그래서 고친 내용이 바로 반영된다.
-const CACHE = 'taktak-v3';
+const CACHE = 'taktak-v5';
 const SHELL = [
   './', 'index.html', 'style.css', 'dingbats.js', 'engine.js', 'app.js',
   'fonts/UnTaza.woff2', 'fonts/Galmuri11.woff2', 'fonts/Galmuri14.woff2', 'icons/icon-192.png',
