@@ -1,0 +1,16 @@
+{
+  "name": "탁탁땀땀드르륵",
+  "short_name": "탁탁땀땀드르륵",
+  "description": "사진에 타자기 글씨와 십자수를 넣는 앱",
+  "lang": "ko",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#efe4d2",
+  "theme_color": "#ece2cd",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

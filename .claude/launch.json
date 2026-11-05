@@ -4,39 +4,95 @@
     {
       "name": "todolist",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8123", "--bind", "127.0.0.1", "--directory", "todolist"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8123",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "todolist"
+      ],
       "port": 8123
     },
     {
       "name": "todolist-db",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "todolist", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "todolist",
+        "run",
+        "dev"
+      ],
       "port": 8126
     },
     {
       "name": "english-dict",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8124", "--bind", "127.0.0.1", "--directory", "english-dict"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8124",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "english-dict"
+      ],
       "port": 8124
     },
     {
       "name": "demoport",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8125", "--bind", "127.0.0.1", "--directory", "demoport"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8125",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "demoport"
+      ],
       "port": 8125
     },
     {
       "name": "sky-wedding-game",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8127", "--bind", "127.0.0.1", "--directory", "DemoWeb/public/game"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8127",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "DemoWeb/public/game"
+      ],
       "port": 8127,
       "url": "http://127.0.0.1:8127"
     },
     {
       "name": "DemoWeb",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "DemoWeb", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "DemoWeb",
+        "run",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "taktak",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8128",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "taktak"
+      ],
+      "port": 8128
     }
   ]
 }

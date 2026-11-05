@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko" data-theme="type">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>탁탁땀땀드르륵</title>
+  <meta name="description" content="사진에 타자기 글씨와 십자수를 넣는 페이지">
+  <meta name="theme-color" content="#ece2cd">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@700&family=Dancing+Script:wght@700&family=Gaegu:wght@700&family=Jua&family=Noto+Sans+Symbols+2&family=Special+Elite&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <h1 class="brand">탁탁땀땀드르륵</h1>
+      <div class="switch" id="switch" role="group" aria-label="컨셉 바꾸기">
+        <button type="button" class="switch-btn" data-concept="type">타자기</button>
+        <button type="button" class="switch-btn" data-concept="stitch">십자수</button>
+        <button type="button" class="switch-btn" data-concept="riso">리소</button>
+      </div>
+    </header>
+
+    <main class="stage-wrap" id="stageWrap">
+      <div class="frame" id="frame">
+        <canvas id="stage" aria-label="사진 작업 화면"></canvas>
+        <button type="button" class="pick-hint" id="pickHint">사진 끼우기</button>
+        <span class="screw" aria-hidden="true"></span>
+      </div>
+      <div class="platen" aria-hidden="true"><i></i><b></b><i></i></div>
+      <!-- 잉크 튜브: 리소 화면의 장식 -->
+      <svg class="riso-deco" viewBox="0 0 96 60" aria-hidden="true">
+        <g stroke="#2e5470" stroke-width="2">
+          <rect x="6" y="14" width="18" height="42" rx="4" fill="#ff8ac4"/><rect x="10" y="6" width="10" height="9" fill="#f9f1e6"/>
+          <rect x="28" y="14" width="18" height="42" rx="4" fill="#ffde54"/><rect x="32" y="6" width="10" height="9" fill="#f9f1e6"/>
+          <rect x="50" y="14" width="18" height="42" rx="4" fill="#7eb4ea"/><rect x="54" y="6" width="10" height="9" fill="#f9f1e6"/>
+          <rect x="72" y="14" width="18" height="42" rx="4" fill="#56b476"/><rect x="76" y="6" width="10" height="9" fill="#f9f1e6"/>
+        </g>
+      </svg>
+      <!-- 잉크 깡통과 몽당연필: 타자기 화면의 장식 -->
+      <svg class="ribbon-tin" viewBox="0 0 96 76" aria-hidden="true">
+        <g transform="rotate(-24 70 40)"><rect x="36" y="35" width="50" height="9" rx="1" fill="#e6b84f" stroke="#4a3a2a" stroke-width="2"/><rect x="28" y="35" width="10" height="9" fill="#d8775f" stroke="#4a3a2a" stroke-width="2"/><path d="M86 35l10 4.500-10 4.500z" fill="#f3dcb4" stroke="#4a3a2a" stroke-width="2"/></g>
+        <ellipse cx="38" cy="50" rx="33" ry="21" fill="#a9c9ba" stroke="#4a3a2a" stroke-width="2.5"/>
+        <ellipse cx="38" cy="45" rx="33" ry="21" fill="#f2e7cf" stroke="#4a3a2a" stroke-width="2.5"/>
+        <ellipse cx="38" cy="45" rx="25" ry="15" fill="none" stroke="#c4473d" stroke-width="2"/>
+        <text x="38" y="49" text-anchor="middle" font-family="Special Elite, monospace" font-size="12" fill="#2f4a6b">INK</text>
+      </svg>
+      <!-- 반짇고리 그림: 십자수 화면의 장식 -->
+      <svg class="sewing-box" viewBox="0 0 96 76" aria-hidden="true">
+        <path d="M10 34h76l-6 38H16z" fill="#b57a45" stroke="#6e4524" stroke-width="2.5"/>
+        <path d="M6 28h84v9H6z" fill="#cf9558" stroke="#6e4524" stroke-width="2.5"/>
+        <rect x="42" y="31" width="12" height="11" rx="2" fill="#e9c46a" stroke="#6e4524" stroke-width="2"/>
+        <g stroke="#6e4524" stroke-width="2">
+          <rect x="18" y="8" width="16" height="4" fill="#e5c49b"/><rect x="20" y="12" width="12" height="13" fill="#9d1b2c"/><rect x="18" y="24" width="16" height="4" fill="#e5c49b"/>
+          <rect x="40" y="4" width="16" height="4" fill="#e5c49b"/><rect x="42" y="8" width="12" height="17" fill="#2c3e75"/><rect x="40" y="24" width="16" height="4" fill="#e5c49b"/>
+          <rect x="62" y="10" width="16" height="4" fill="#e5c49b"/><rect x="64" y="14" width="12" height="11" fill="#e2542a"/><rect x="62" y="24" width="16" height="4" fill="#e5c49b"/>
+        </g>
+        <path d="M26 56c10-8 16 8 26 0s14 6 22-2" fill="none" stroke="#f6efe0" stroke-width="2.5" stroke-dasharray="6 4" stroke-linecap="round"/>
+      </svg>
+    </main>
+
+    <section class="machine" id="machine">
+      <nav class="tabs" id="tabs" role="tablist">
+        <button type="button" class="tab" data-tab="photo">사진</button>
+        <button type="button" class="tab" data-tab="text">글씨</button>
+        <button type="button" class="tab" data-tab="ding">딩벳</button>
+        <button type="button" class="tab" data-tab="grid" data-only="stitch">모눈</button>
+        <button type="button" class="tab" data-tab="print" data-only="riso">인쇄</button>
+        <button type="button" class="tab save" id="saveBtn">저장</button>
+      </nav>
+
+      <div class="panels">
+        <!-- 사진 -->
+        <div class="panel" data-panel="photo">
+          <div class="row two">
+            <button type="button" class="key wide" id="pickBtn">앨범에서 고르기</button>
+            <button type="button" class="key wide" id="cameraBtn">바로 찍기</button>
+          </div>
+          <input type="file" id="fileInput" accept="image/*" hidden>
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+          <div class="field"><span class="label">틀 비율</span>
+            <div class="seg wrap" data-group="ratio">
+              <button type="button" data-value="orig">원본</button>
+              <button type="button" data-value="1:1">1:1</button>
+              <button type="button" data-value="4:5">4:5</button>
+              <button type="button" data-value="3:4">3:4</button>
+              <button type="button" data-value="4:3">4:3</button>
+              <button type="button" data-value="9:16">9:16</button>
+              <button type="button" data-value="16:9">16:9</button>
+            </div>
+          </div>
+          <label class="field"><span class="label">사진 확대</span><input type="range" id="zoom" min="1" max="5" step="0.01"></label>
+          <div class="row">
+            <span class="hint grow">사진을 끌어서 옮기고, 두 손가락으로 확대해요.</span>
+            <button type="button" class="mini" id="cropResetBtn">처음대로</button>
+          </div>
+          <div class="field"><span class="label">놓는 방식</span>
+            <div class="seg" data-group="layout">
+              <button type="button" data-value="full">꽉 차게</button>
+              <button type="button" data-value="mat">종이 위에</button>
+              <button type="button" data-value="frame">액자까지</button>
+            </div>
+          </div>
+          <div class="field" data-when="layout:mat,frame"><span class="label">종이 색</span><div class="chips" id="matChips"></div></div>
+          <div class="field" data-when="layout:frame"><span class="label">액자</span>
+            <div class="seg" data-group="frameKind">
+              <button type="button" data-value="wood">나무</button>
+              <button type="button" data-value="red">빨강</button>
+              <button type="button" data-value="cream">크림</button>
+            </div>
+          </div>
+          <label class="field" data-only="type stitch"><span class="label">필름 노이즈</span>
+            <input type="range" id="noise" min="0" max="1" step="0.01"><output id="noiseOut"></output>
+          </label>
+        </div>
+
+        <!-- 글씨 -->
+        <div class="panel" data-panel="text">
+          <div class="writer">
+            <textarea id="textInput" rows="2" spellcheck="false" placeholder="넣을 글씨 (줄바꿈 가능)"></textarea>
+            <button type="button" class="key strike" id="strikeBtn"></button>
+          </div>
+          <div class="sel-bar" id="selBar" hidden>
+            <span>고르는 중인 글씨를 고치고 있어요</span>
+            <button type="button" class="mini" id="deselectBtn">새 글씨</button>
+            <button type="button" class="mini danger" id="deleteBtn">지우기</button>
+          </div>
+          <div class="options" id="options">
+            <div class="field" data-only="type"><span class="label">글꼴</span>
+              <div class="seg" data-group="font">
+                <button type="button" data-value="elite">낡은 타자</button>
+                <button type="button" data-value="courier">또렷한 타자</button>
+              </div>
+            </div>
+            <div class="field" data-only="stitch"><span class="label">글꼴</span>
+              <div class="seg" data-group="stitchFont">
+                <button type="button" data-value="script">필기체</button>
+                <button type="button" data-value="dot">또박또박</button>
+              </div>
+            </div>
+            <label class="field"><span class="label">크기</span><input type="range" id="size" min="0.02" max="0.2" step="0.002"></label>
+            <label class="field"><span class="label">기울기</span><input type="range" id="rot" min="-45" max="45" step="1"></label>
+            <label class="field" data-only="type"><span class="label">잉크 번짐</span><input type="range" id="bleed" min="0" max="1" step="0.01"></label>
+            <label class="field" data-only="type"><span class="label">흐트러짐</span><input type="range" id="scatter" min="0" max="1" step="0.01"></label>
+            <label class="field" data-only="stitch"><span class="label">땀 수</span><input type="range" id="rows" min="10" max="28" step="1"></label>
+            <div class="field" data-only="type"><span class="label">잉크 색</span><div class="chips" id="inkChips"></div></div>
+            <div class="field" data-only="stitch"><span class="label">실 색</span><div class="chips spools" id="threadChips"></div></div>
+            <div class="field" data-only="riso"><span class="label">잉크</span><div class="chips" id="risoChips"></div></div>
+            <div class="field" data-only="stitch"><span class="label">실 종류</span>
+              <div class="seg" data-group="threadKind">
+                <button type="button" data-value="cotton">자수실</button>
+                <button type="button" data-value="wool">털실</button>
+              </div>
+            </div>
+            <div class="field"><span class="label">글씨 바탕</span>
+              <div class="seg" data-group="back">
+                <button type="button" data-value="none">사진에 바로</button>
+                <button type="button" data-value="paper">종이 띠</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 딩벳 -->
+        <div class="panel" data-panel="ding">
+          <p class="hint">눌러서 넣고, 손가락으로 옮기고, 두 손가락으로 크기를 바꿔요.</p>
+          <div class="dings" id="dingGrid" data-only="stitch"></div>
+          <div class="dings" id="typeDingGrid" data-only="type riso"></div>
+          <div class="field" data-only="stitch"><span class="label">실 테두리</span>
+            <div class="seg" data-group="border">
+              <button type="button" data-value="none">없음</button>
+              <button type="button" data-value="run">홈질</button>
+              <button type="button" data-value="cross">X자</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 인쇄 -->
+        <div class="panel" data-panel="print" data-only="riso">
+          <div class="seg" data-group="palette">
+            <button type="button" data-value="mono">흑백</button>
+            <button type="button" data-value="pastel">파스텔</button>
+            <button type="button" data-value="vivid">빈티지</button>
+            <button type="button" data-value="fluoro">형광</button>
+          </div>
+          <label class="field"><span class="label">망점 크기</span><input type="range" id="dot" min="0" max="1" step="0.01"></label>
+          <label class="field"><span class="label">판 어긋남</span><input type="range" id="mis" min="0" max="1" step="0.01"></label>
+          <label class="field"><span class="label">색 겹침</span><input type="range" id="overlap" min="0" max="1" step="0.01"></label>
+          <button type="button" class="key wide" id="printBtn">드르륵! 다시 찍기</button>
+          <p class="hint">누를 때마다 판이 다르게 어긋나요.</p>
+        </div>
+
+        <!-- 모눈 -->
+        <div class="panel" data-panel="grid" data-only="stitch">
+          <div class="seg" data-group="tool">
+            <button type="button" data-value="pen">바늘</button>
+            <button type="button" data-value="erase">지우개</button>
+            <button type="button" data-value="move">도안 옮기기</button>
+          </div>
+          <div class="row">
+            <button type="button" class="mini" id="undoBtn">되돌리기</button>
+            <button type="button" class="mini" id="zoomResetBtn">확대 풀기</button>
+            <button type="button" class="mini danger" id="clearHandBtn">땀 전부 지우기</button>
+          </div>
+          <label class="field"><span class="label">칸 수</span><input type="range" id="cols" min="24" max="90" step="2"></label>
+          <div class="field"><span class="label">실 색</span><div class="chips spools" id="threadChips2"></div></div>
+          <div class="field"><span class="label">도안 깔기</span>
+            <div class="writer small">
+              <input id="ghostText" type="text" placeholder="글씨를 도안으로" autocomplete="off">
+              <button type="button" class="mini" id="ghostBtn">깔기</button>
+              <button type="button" class="mini" id="ghostClearBtn">치우기</button>
+            </div>
+          </div>
+          <div class="dings small" id="ghostDings"></div>
+          <p class="hint">한 손가락으로 칸을 채우고, 두 손가락으로 확대해요. 도안은 저장되지 않아요.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <dialog class="save-dialog" id="saveDialog">
+    <img id="saveImg" alt="완성한 사진 미리보기">
+    <div class="row two">
+      <button type="button" class="key wide" id="downloadBtn">휴대폰에 저장</button>
+      <button type="button" class="key wide" id="shareBtn">공유</button>
+    </div>
+    <button type="button" class="mini" id="closeSave">닫기</button>
+  </dialog>
+
+  <script src="dingbats.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
